@@ -1,0 +1,18 @@
+# Ambientes virtuais
+venv/
+.env/
+
+# Cache e compilados do Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Arquivos de log
+*.log
+
+# Executáveis
+chromedriver.exe
+
+# Arquivos de credenciais
+credenciais.json
+automacao-prime-f6441-firebase-adminsdk-*.json
