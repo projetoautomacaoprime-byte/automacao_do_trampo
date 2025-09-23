@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session
 
+
 # Cria a aplicação Flask
 app = Flask(__name__)
 
@@ -27,7 +28,7 @@ def login():
         return redirect(url_for('dashboard'))
     
     # Caso usuário/senha incorretos, retorna uma mensagem de erro personalizada
-    return 'MAMAE É MUITO LINDA'
+    return 'aaaaaaaaaaaaaah'
 
 # Rota para a página do dashboard (painel)
 @app.route('/dashboard')
