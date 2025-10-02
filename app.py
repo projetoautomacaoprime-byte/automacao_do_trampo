@@ -1,5 +1,11 @@
+import firebase_admin
+from firebase_admin import credentials, firestore
 from flask import Flask, render_template, request, redirect, url_for, session
 
+
+cred = credentials.Certificate("credenciais.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
 # Cria a aplicação Flask
 app = Flask(__name__)
