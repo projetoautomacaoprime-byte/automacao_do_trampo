@@ -16,3 +16,4 @@ chromedriver.exe
 # Arquivos de credenciais
 credenciais.json
 automacao-prime-f6441-firebase-adminsdk-*.json
+criar_usuarios.py
