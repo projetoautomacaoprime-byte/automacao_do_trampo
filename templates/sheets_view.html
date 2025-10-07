@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Dados da Planilha</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f9f9f9;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background: white;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body></body>
+    <h2>Dashboard</h2>
+
+<div>
+  {{ table | safe }}
+</div>
+
+<div style="margin-top: 10px;">
+  {% if next_start %}
+    <a href="{{ url_for('dashboard', start=next_start) }}">
+      <button>Mostrar Próximas 10 linhas</button>
+    </a>
+  {% endif %}
+</div>
+<form method="get" action="{{ url_for('dashboard') }}">
+  Parcela Min: <input type="300" name="parcela" value="{{ parcela_min }}">
+  Prazo Min: <input type="55" name="prazo" value="{{ prazo_min }}">
+  Banco: <input type="BANCO DO BRASIL SERV d8" name="banco" value="{{ banco }}">
+  Idade Max: <input type="70" name="IDADE" value="{{ idade_max }}">
+  
+  <button type="submit">Filtrar</button>
+</form>
+
+</body>
+</html>
