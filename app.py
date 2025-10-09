@@ -1,7 +1,7 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 from flask import Flask, render_template, request, redirect, url_for, session
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash
 import os
 from dotenv import load_dotenv
 from datetime import timedelta, datetime
@@ -9,7 +9,7 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 
-# Cria a aplicação Flask
+# --- Configuração do Flask ---
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
 
@@ -24,15 +24,15 @@ def read_sheet_to_dataframe(sheet_url: str, sheet_name: str, creds_path: str = "
     df = pd.DataFrame(data)
     return df
 
-# Inicializar Firebase
+# --- Inicializar Firebase ---
 cred = credentials.Certificate("credenciais.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Carregar variáveis do .env
+# --- Carregar variáveis do .env ---
 load_dotenv()
 
-# Define tempo máximo da sessão
+# --- Tempo máximo da sessão ---
 SESSION_TIMEOUT_MINUTES = 30
 
 @app.before_request
@@ -73,43 +73,80 @@ def login():
 
     return 'Usuário ou senha incorretos!'
 
-# --- Dashboard protegido com filtros e paginação ---
+# --- Dashboard protegido com filtros automáticos, paginação e salvamento no Firebase ---
 @app.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('home'))
 
-    # --- Parâmetros de paginação ---
+    # --- Paginação ---
     start = int(request.args.get('start', 0))
     limit = 10
-
-    # --- Receber filtros do request ---
-    cpf = request.args.get('cpf', '').strip()
-    parcela_min = request.args.get('parcela_min', '').strip()
-    prazo_min = request.args.get('prazo_min', '').strip()
-    banco = request.args.get('banco', '').strip()
-    idade_max = request.args.get('idade_max', '').strip()
 
     # --- Ler planilha ---
     SHEET_URL = "https://docs.google.com/spreadsheets/d/1hKhKv4h4QGx5PyfNqp5kXQz0CPp_7wE3X1F-QvWxiCI/edit?gid=0#gid=0"
     SHEET_NAME = "Página1"
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
 
-    # --- Aplicar filtros ---
-    filtered_df = df.copy()
-    if parcela_min:
-        filtered_df = filtered_df[filtered_df["Parcela"] >= int(parcela_min)]
-    if prazo_min:
-        filtered_df = filtered_df[filtered_df["Prazo"] >= int(prazo_min)]
-    if banco:
-        filtered_df = filtered_df[filtered_df["Banco"].str.contains(banco, case=False)]
-    if idade_max:
-        filtered_df = filtered_df[filtered_df["Idade"] <= int(idade_max)]
+    # --- Padronizar colunas ---
+    df.columns = df.columns.str.strip()
+    df.columns = df.columns.str.replace(" ", "_")
+    df.columns = df.columns.str.lower()
 
-    # --- Paginação ---
-    paginated_df = filtered_df.iloc[start:start+limit]
+    # --- Converter taxa de juros ---
+    if "taxa_juros_mensal" in df.columns:
+        df["taxa_juros_mensal"] = df["taxa_juros_mensal"].astype(str).str.replace(",", ".").astype(float) / 100
+    else:
+        df["taxa_juros_mensal"] = 0.015
+
+    # --- Calcular saldo devedor ---
+    df["saldo_devedor"] = df.apply(
+        lambda row: row["parcela"] * (1 - (1 + row["taxa_juros_mensal"]) ** -row["prazo"]) / row["taxa_juros_mensal"]
+        if row["taxa_juros_mensal"] > 0 else row["parcela"] * row["prazo"],
+        axis=1
+    )
+
+    # --- Filtros automáticos ---
+    parcela_min = 365.55
+    prazo_min = 55
+    idade_max = 70
+    banco = ""
+
+    filtered_df = df.copy()
+    filtered_df = filtered_df[filtered_df["parcela"] >= parcela_min]
+    filtered_df = filtered_df[filtered_df["prazo"] >= prazo_min]
+    filtered_df = filtered_df[filtered_df["idade"] <= idade_max]
+    if banco:
+        filtered_df = filtered_df[filtered_df["banco"].str.contains(banco, case=False, na=False)]
+
+    # --- Filtro por saldo mínimo ---
+    i = 0.015
+    saldo_min = parcela_min * (1 - (1 + i) ** -prazo_min) / i
+    filtered_df = filtered_df[filtered_df["saldo_devedor"] >= saldo_min]
+
+    # --- Paginação para exibição ---
+    paginated_df = filtered_df.iloc[start:start + limit]
     table_html = paginated_df.to_html(classes='table table-striped', index=False)
     next_start = start + limit if start + limit < len(filtered_df) else None
+
+    # --- Salvar somente os 10 registros visíveis no Firebase ---
+    for _, row in paginated_df.iterrows():
+        doc_id = f"{row['cpf']}_{row['banco']}_{row['uf']}".replace(" ", "").upper()
+        doc = {
+            "cpf": row['cpf'],
+            "nome": row['nome'],
+            "dt_nascimento": row.get('dt_nascimento', ''),
+            "idade": row['idade'],
+            "banco": row['banco'],
+            "uf": row['uf'],
+            "parcela": row['parcela'],
+            "prazo": row['prazo'],
+            "saldo_devedor": row['saldo_devedor'],
+            "orgao": row.get('orgao', ''),
+            "matricula": row.get('matricula', ''),
+            "timestamp": datetime.utcnow()
+        }
+        db.collection('fluxo_pessoas').document(doc_id).set(doc)
 
     # --- Renderizar template ---
     return render_template(
@@ -123,6 +160,7 @@ def dashboard():
         idade_max=idade_max,
         username=session.get('username')
     )
+
 
 # --- Logout ---
 @app.route('/logout')
