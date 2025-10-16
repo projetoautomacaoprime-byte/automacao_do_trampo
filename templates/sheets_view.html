@@ -2,14 +2,14 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Dados da Planilha</title>
+    <title>Dashboard Clientes</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 40px;
             background: #f9f9f9;
         }
-        h1 {
+        h2 {
             text-align: center;
             color: #333;
         }
@@ -30,23 +30,119 @@
         tr:nth-child(even) {
             background-color: #f2f2f2;
         }
+        button {
+            padding: 10px 20px;
+            margin-top: 15px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #555;
+        }
     </style>
 </head>
-<body></body>
-    <h2>Dashboard</h2>
+<body>
+    <h2>Dashboard Clientes</h2>
+    
+    <div id="dashboard" data-start="{{ start | default(0) }}"></div>
 
-<div>
-  {{ table | safe }}
-</div>
 
-<div style="margin-top: 10px;">
-  {% if next_start %}
-    <a href="{{ url_for('dashboard', start=next_start) }}">
-      <button>Mostrar Próximas 10 linhas</button>
-    </a>
-  {% endif %}
-</div>
-</form>
+    <div class="info">
+        <p><b>Usuário:</b> {{ username }}</p>
+        <p>
+            Total planilha: {{ total_planilha }} |
+            Após filtro saldo ≥ 25k: {{ apos_filtro_saldo }} |
+            Após remover duplicados e Firebase: {{ apos_remover_firebase }}
+        </p>
+        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>
+    </div>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Nome</th>
+                <th>CPF</th>
+                <th>Banco</th>
+                <th>UF</th>
+                <th>Saldo Devedor</th>
+                <th>Parcela</th>
+            </tr>
+        </thead>
+        <tbody id="tabela-body">
+            {% for row in table_data %}
+            <tr>
+                <td>{{ row.nome }}</td>
+                <td>{{ row.cpf }}</td>
+                <td>{{ row.banco }}</td>
+                <td>{{ row.uf }}</td>
+                <td>{{ row.saldo_devedor }}</td>
+                <td>{{ row.parcela }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="text-align:center;">
+        <button id="btnAtualiza">🔁 Atualizar Clientes</button>
+    </div>
+
+ <script>
+document.addEventListener("DOMContentLoaded", function() {
+    console.log("🟢 Script carregado corretamente");
+
+    const dashboard = document.getElementById('dashboard');
+    let currentStart = Number(dashboard.dataset.start) || 0;
+    const limit = 10;
+    const btn = document.getElementById('btnAtualiza');
+    const tbody = document.getElementById('tabela-body');
+
+    async function atualizaClientes() {
+        console.log("🔵 Botão clicado! Start atual:", currentStart);
+        btn.disabled = true;
+        btn.innerText = "Carregando...";
+
+        try {
+            const res = await fetch('/atualiza_dataframe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start: currentStart, limit: limit })
+            });
+
+            const data = await res.json();
+            console.log("🟣 Dados recebidos do servidor:", data);
+
+            if (data.tbody) {
+                tbody.innerHTML = data.tbody;
+                currentStart = data.next_start ?? 0; // atualiza o cursor
+                console.log("🟠 Próximo start atualizado para:", currentStart);
+            }
+        } catch (err) {
+            console.error("❌ Erro ao atualizar clientes:", err);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "🔁 Atualizar Clientes";
+        }
+    }
+
+    if (btn) {
+        btn.addEventListener('click', atualizaClientes);
+        console.log("✅ Evento de clique adicionado ao botão.");
+    } else {
+        console.error("❌ Botão não encontrado!");
+    }
+});
+</script>
+
+
+
 
 </body>
 </html>
