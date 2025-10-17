@@ -125,6 +125,41 @@ def login():
 
     return 'Usuário ou senha incorretos!'
 
+# ============================================================
+# 🧩 FILTROS CENTRALIZADOS
+# ============================================================
+
+def aplicar_filtros(df: pd.DataFrame) -> pd.DataFrame:
+    """Aplica todos os filtros necessários: saldo, banco, idade, duplicados, etc."""
+
+    # --- Filtro inicial por saldo ---
+    filtered_df = df[df["saldo_devedor_float"] >= 25000].copy()
+
+    # --- Normalizar nome da coluna do banco e idade ---
+    if 'banco' in filtered_df.columns:
+        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower()
+    else:
+        filtered_df['banco_clean'] = ""
+
+    if 'idade' not in filtered_df.columns:
+        filtered_df['idade'] = 0
+
+    # --- Lista de bancos bloqueados (bloqueio direto no código) ---
+    blocked_banks = [
+        "",
+        # adicione mais nomes se quiser
+    ]
+    blocked_banks = [b.lower() for b in blocked_banks]
+
+    # --- Aplicar filtros ---
+    filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
+    filtered_df = filtered_df[filtered_df['idade'] <= 70]
+
+    # --- Remover coluna auxiliar ---
+    filtered_df.drop(columns=['banco_clean'], errors='ignore', inplace=True)
+
+    return filtered_df
+
 
 # ============================================================
 # 📊 DASHBOARD PRINCIPAL
@@ -159,7 +194,9 @@ def dashboard():
 
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
-    filtered_df = df[df["saldo_devedor_float"] >= 25000]
+
+    filtered_df = aplicar_filtros(df)
+
 
     def gerar_doc_id(row):
         return f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper()
@@ -207,7 +244,20 @@ def dashboard():
 
     print(f"\n🔥 Total de registros enviados ao Firestore: {enviados}")
 
-    table_data = display_df[["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela"]].to_dict(orient="records")
+    # --- Definir colunas que queremos mostrar ---
+    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
+
+# --- Procurar colunas de telefone dinamicamente ---
+    colunas_telefone = [c for c in display_df.columns if "telefone" in c.lower()]
+
+# --- Combinar e manter apenas as que realmente existem ---
+    colunas = [c for c in (colunas_base + colunas_telefone) if c in display_df.columns]
+
+# --- Gerar os dados para exibir ---
+    table_data = display_df[colunas].to_dict(orient="records")
+
+
+
 
     return render_template(
         'sheets_view.html',
@@ -247,7 +297,33 @@ def atualiza_dataframe():
 
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
-    filtered_df = df[df["saldo_devedor_float"] >= 25000]
+
+    filtered_df = aplicar_filtros(df)
+
+
+    # --- Normalizar nome da coluna do banco e idade ---
+    if 'banco' in filtered_df.columns:
+        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower()
+    else:
+        filtered_df['banco_clean'] = ""
+
+    if 'idade' not in filtered_df.columns:
+        filtered_df['idade'] = 0
+
+    # --- Lista de bancos bloqueados (bloqueio direto no código) ---
+    blocked_banks = [
+        "banco do brasil serv d8"
+    ]
+
+    blocked_banks = [b.lower() for b in blocked_banks]
+
+    # --- Aplicar filtros ---
+    filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
+    filtered_df = filtered_df[filtered_df['idade'] <= 70]
+
+    # --- Remover coluna auxiliar ---
+    filtered_df = filtered_df.drop(columns=['banco_clean'], errors='ignore')
+
 
     def gerar_doc_id(row):
         return f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper()
@@ -270,19 +346,19 @@ def atualiza_dataframe():
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
-    # --- Montar HTML da tabela ---
+    # --- Colunas para exibir ---
+    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
+    colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
+    colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
+
+    # --- Montar HTML da tabela dinamicamente ---
     tbody_html = ""
     for _, row in paginated_df.iterrows():
-        tbody_html += f"""
-        <tr>
-          <td>{row['nome']}</td>
-          <td>{row['cpf']}</td>
-          <td>{row['banco']}</td>
-          <td>{row['uf']}</td>
-          <td>{row['saldo_devedor']}</td>
-          <td>{row['parcela']}</td>
-        </tr>
-        """
+        tbody_html += "<tr>"
+        for c in colunas:
+            valor = row.get(c, "")
+            tbody_html += f"<td>{valor}</td>"
+        tbody_html += "</tr>"
 
     print(f"🔹 Enviando {len(paginated_df)} registros para o frontend.")
 
@@ -307,4 +383,5 @@ def logout():
 # ============================================================
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
+

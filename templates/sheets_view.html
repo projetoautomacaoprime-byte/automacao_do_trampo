@@ -7,7 +7,7 @@
         body {
             font-family: Arial, sans-serif;
             margin: 40px;
-            background: #f9f9f9;
+            background: #152B33;
         }
         h2 {
             text-align: center;
@@ -58,37 +58,52 @@
     <div class="info">
         <p><b>Usuário:</b> {{ username }}</p>
         <p>
-            Total planilha: {{ total_planilha }} |
+           <!-- Total planilha: {{ total_planilha }} |
             Após filtro saldo ≥ 25k: {{ apos_filtro_saldo }} |
             Após remover duplicados e Firebase: {{ apos_remover_firebase }}
         </p>
-        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>
+        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>-->
     </div>
 
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Nome</th>
-                <th>CPF</th>
-                <th>Banco</th>
-                <th>UF</th>
-                <th>Saldo Devedor</th>
-                <th>Parcela</th>
-            </tr>
-        </thead>
-        <tbody id="tabela-body">
-            {% for row in table_data %}
-            <tr>
-                <td>{{ row.nome }}</td>
-                <td>{{ row.cpf }}</td>
-                <td>{{ row.banco }}</td>
-                <td>{{ row.uf }}</td>
-                <td>{{ row.saldo_devedor }}</td>
-                <td>{{ row.parcela }}</td>
-            </tr>
+   <table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Nome</th>
+            <th>CPF</th>
+            <th>Banco</th>
+            <th>UF</th>
+            <th>Saldo Devedor</th>
+            <th>Parcela</th>
+            <th>Prazo</th>
+            {% if table_data and table_data[0] %}
+                {% for col, val in table_data[0].items() %}
+                    {% if 'telefone' in col %}
+                        <th>{{ col.replace('_', ' ') | capitalize }}</th>
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        </tr>
+    </thead>
+    <tbody id="tabela-body">
+        {% for row in table_data %}
+        <tr>
+            <td>{{ row.nome }}</td>
+            <td>{{ row.cpf }}</td>
+            <td>{{ row.banco }}</td>
+            <td>{{ row.uf }}</td>
+            <td>{{ row.saldo_devedor }}</td>
+            <td>{{ row.parcela }}</td>
+            <td>{{ row.prazo }}</td>
+            {% for col, val in row.items() %}
+                {% if 'telefone' in col %}
+                    <td>{{ val }}</td>
+                {% endif %}
             {% endfor %}
-        </tbody>
-    </table>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
 
     <div style="text-align:center;">
         <button id="btnAtualiza">🔁 Atualizar Clientes</button>
