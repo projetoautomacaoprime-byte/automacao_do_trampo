@@ -3,7 +3,7 @@ from datetime import timedelta, datetime
 
 import firebase_admin
 from firebase_admin import credentials, firestore
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, render_template_string
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from werkzeug.security import check_password_hash
 import gspread
 import pandas as pd
@@ -25,13 +25,11 @@ db = firestore.client()
 # --- Tempo máximo da sessão ---
 SESSION_TIMEOUT_MINUTES = 30
 
-
 # ============================================================
 # 🧩 FUNÇÕES AUXILIARES
 # ============================================================
 
 def read_sheet_to_dataframe(sheet_url: str, sheet_name: str, creds_path: str = "credenciais.json") -> pd.DataFrame:
-    """Lê planilha do Google Sheets e retorna como DataFrame"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
     creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
     client = gspread.authorize(creds)
@@ -40,9 +38,7 @@ def read_sheet_to_dataframe(sheet_url: str, sheet_name: str, creds_path: str = "
     data = worksheet.get_all_records()
     return pd.DataFrame(data)
 
-
 def parse_brl(valor):
-    """Converte valor BRL para float"""
     try:
         if isinstance(valor, str):
             valor = valor.replace(".", "").replace(",", ".")
@@ -51,33 +47,25 @@ def parse_brl(valor):
         print("Erro ao converter número:", valor, e)
         return 0.0
 
-
 def calcular_valor_financiado(row):
-    """Calcula o valor financiado (saldo devedor)"""
     try:
         parcela = parse_brl(row.get("parcela", 0))
         prazo = int(parse_brl(row.get("prazo", 0)))
-        taxa = 1.5 / 100  # 1,5% ao mês
-
+        taxa = 1.5 / 100
         if parcela <= 0 or prazo <= 0 or taxa <= 0:
             return 0.0
-
         valor_financiado = parcela * (1 - (1 + taxa) ** (-prazo)) / taxa
-        valor_financiado /= 100  # Corrigir multiplicação indevida por 100
-
+        valor_financiado /= 100
         return round(valor_financiado, 2)
     except Exception as e:
         print("Erro ao calcular saldo:", e)
         return 0.0
 
-
 def format_brl(valor):
-    """Formata float para BRL"""
     try:
         return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return valor
-
 
 # ============================================================
 # 🔐 SESSÃO
@@ -95,7 +83,6 @@ def verificar_sessao():
                 return redirect(url_for("home"))
         session["last_seen"] = agora.strftime("%Y-%m-%d %H:%M:%S")
 
-
 # ============================================================
 # 🔑 AUTENTICAÇÃO
 # ============================================================
@@ -103,7 +90,6 @@ def verificar_sessao():
 @app.route('/')
 def home():
     return render_template('login.html')
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -129,63 +115,49 @@ def login():
 # 🧩 FILTROS CENTRALIZADOS
 # ============================================================
 
-def aplicar_filtros(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica todos os filtros necessários: saldo, banco, idade, duplicados, etc."""
-
-    # --- Filtro inicial por saldo ---
+def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None) -> pd.DataFrame:
     filtered_df = df[df["saldo_devedor_float"] >= 25000].copy()
+    filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in filtered_df.columns else ""
+    filtered_df['idade'] = filtered_df.get('idade', 0)
 
-    # --- Normalizar nome da coluna do banco e idade ---
-    if 'banco' in filtered_df.columns:
-        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower()
-    else:
-        filtered_df['banco_clean'] = ""
-
-    if 'idade' not in filtered_df.columns:
-        filtered_df['idade'] = 0
-
-    # --- Lista de bancos bloqueados (bloqueio direto no código) ---
-    blocked_banks = [
-        "",
-        # adicione mais nomes se quiser
-    ]
+    # Bancos bloqueados
+    blocked_banks = [""]
     blocked_banks = [b.lower() for b in blocked_banks]
 
-    # --- Aplicar filtros ---
     filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
     filtered_df = filtered_df[filtered_df['idade'] <= 70]
 
-    # --- Remover coluna auxiliar ---
+    # Filtros opcionais
+    if uf_filtro:
+        filtered_df = filtered_df[filtered_df['uf'].str.upper() == uf_filtro.upper()]
+    if orgao_filtro:
+        filtered_df = filtered_df[filtered_df['orgao'].astype(str).str.upper() == orgao_filtro.upper()]
+
     filtered_df.drop(columns=['banco_clean'], errors='ignore', inplace=True)
-
     return filtered_df
-
 
 # ============================================================
 # 📊 DASHBOARD PRINCIPAL
 # ============================================================
+
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1hKhKv4h4QGx5PyfNqp5kXQz0CPp_7wE3X1F-QvWxiCI/edit?gid=0#gid=0"
+SHEET_NAME = "Página1"
 
 @app.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('home'))
 
-    # --- pegar o start corretamente ---
     start = request.args.get('start', 0)
     try:
         start = int(start)
     except (ValueError, TypeError):
         start = 0
-
     limit = 10
 
-
     # --- Ler planilha ---
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/1hKhKv4h4QGx5PyfNqp5kXQz0CPp_7wE3X1F-QvWxiCI/edit?gid=0#gid=0"
-    SHEET_NAME = "Página1"
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
     print(f"\n✅ Planilha carregada: {len(df)} linhas")
-
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
 
     for col in ["parcela", "prazo", "idade"]:
@@ -197,13 +169,11 @@ def dashboard():
 
     filtered_df = aplicar_filtros(df)
 
-
-    def gerar_doc_id(row):
-        return f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper()
-
-    filtered_df['doc_id'] = filtered_df.apply(gerar_doc_id, axis=1)
+    # --- Gerar doc_id e remover duplicados ---
+    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
+    # --- Remove clientes já existentes no Firebase ---
     existing_docs = db.collection('fluxo_pessoas').stream()
     existing_ids = set(doc.id for doc in existing_docs)
     new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
@@ -213,15 +183,13 @@ def dashboard():
     apos_remover_locais = len(filtered_df)
     apos_remover_firebase = len(new_df)
 
-    paginated_df = new_df.iloc[start:start + limit]
-
-    display_df = paginated_df.copy()
-    display_df["parcela"] = display_df["parcela_exibir"]
-    display_df["saldo_devedor"] = display_df["saldo_devedor_float"].apply(format_brl)
+    paginated_df = new_df.iloc[start:start + limit].copy()
+    paginated_df["parcela"] = paginated_df["parcela_exibir"]
+    paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
     next_start = start + limit if start + limit < len(new_df) else None
 
-    # --- Enviar novos registros ao Firebase ---
+    # --- Salvar clientes da página atual no Firebase ---
     enviados = 0
     for _, row in paginated_df.iterrows():
         doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
@@ -232,7 +200,7 @@ def dashboard():
             "idade": row['idade'],
             "banco": row['banco'],
             "uf": row['uf'],
-            "parcela": format_brl(row['parcela'] / 100),
+            "parcela": row.get('parcela_exibir', '0,00'),
             "prazo": row['prazo'],
             "saldo_devedor": format_brl(row['saldo_devedor_float']),
             "orgao": row.get('orgao', ''),
@@ -244,20 +212,12 @@ def dashboard():
 
     print(f"\n🔥 Total de registros enviados ao Firestore: {enviados}")
 
-    # --- Definir colunas que queremos mostrar ---
+    # --- Colunas para exibir ---
     colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
+    colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
+    colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
 
-# --- Procurar colunas de telefone dinamicamente ---
-    colunas_telefone = [c for c in display_df.columns if "telefone" in c.lower()]
-
-# --- Combinar e manter apenas as que realmente existem ---
-    colunas = [c for c in (colunas_base + colunas_telefone) if c in display_df.columns]
-
-# --- Gerar os dados para exibir ---
-    table_data = display_df[colunas].to_dict(orient="records")
-
-
-
+    table_data = paginated_df[colunas].to_dict(orient="records")
 
     return render_template(
         'sheets_view.html',
@@ -272,9 +232,8 @@ def dashboard():
         exibidos=len(paginated_df)
     )
 
-
 # ============================================================
-# 🔁 ROTA PARA ATUALIZAR DATAFRAME (via AJAX)
+# 🔁 AJAX ATUALIZAÇÃO
 # ============================================================
 
 @app.route('/atualiza_dataframe', methods=['POST'])
@@ -284,13 +243,12 @@ def atualiza_dataframe():
     data = request.get_json()
     start = int(data.get('start', 0))
     limit = int(data.get('limit', 10))
+    uf_filtro = data.get('uf', None)
+    orgao_filtro = data.get('orgao', None)
 
-    # --- Lê e processa planilha ---
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/1hKhKv4h4QGx5PyfNqp5kXQz0CPp_7wE3X1F-QvWxiCI/edit?gid=0#gid=0"
-    SHEET_NAME = "Página1"
+    # --- Ler planilha ---
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-
     for col in ["parcela", "prazo", "idade"]:
         if col in df.columns:
             df[col] = df[col].apply(parse_brl)
@@ -298,60 +256,52 @@ def atualiza_dataframe():
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
 
-    filtered_df = aplicar_filtros(df)
+    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro)
 
-
-    # --- Normalizar nome da coluna do banco e idade ---
-    if 'banco' in filtered_df.columns:
-        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower()
-    else:
-        filtered_df['banco_clean'] = ""
-
-    if 'idade' not in filtered_df.columns:
-        filtered_df['idade'] = 0
-
-    # --- Lista de bancos bloqueados (bloqueio direto no código) ---
-    blocked_banks = [
-        "banco do brasil serv d8"
-    ]
-
-    blocked_banks = [b.lower() for b in blocked_banks]
-
-    # --- Aplicar filtros ---
-    filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
-    filtered_df = filtered_df[filtered_df['idade'] <= 70]
-
-    # --- Remover coluna auxiliar ---
-    filtered_df = filtered_df.drop(columns=['banco_clean'], errors='ignore')
-
-
-    def gerar_doc_id(row):
-        return f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper()
-
-    filtered_df['doc_id'] = filtered_df.apply(gerar_doc_id, axis=1)
+    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
+    # --- Remove clientes já existentes no Firebase ---
     existing_docs = db.collection('fluxo_pessoas').stream()
     existing_ids = set(doc.id for doc in existing_docs)
     new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
 
     # --- Paginação ---
+    paginated_df = new_df.iloc[start:start + limit].copy()
+    paginated_df["parcela"] = paginated_df["parcela_exibir"]
+    paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
     next_start = start + limit
     if next_start >= len(new_df):
         next_start = 0
 
-    print(f"Start recebido: {start}, Próximo start: {next_start}, Total registros novos: {len(new_df)}")
+    # --- Salva clientes da página atual ---
+    enviados = 0
+    for _, row in paginated_df.iterrows():
+        doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
+        doc = {
+            "cpf": row['cpf'],
+            "nome": row['nome'],
+            "dt_nascimento": row.get('dt_nascimento', ''),
+            "idade": row['idade'],
+            "banco": row['banco'],
+            "uf": row['uf'],
+            "parcela": row.get('parcela_exibir', '0,00'),
+            "prazo": row['prazo'],
+            "saldo_devedor": format_brl(row['saldo_devedor_float']),
+            "orgao": row.get('orgao', ''),
+            "matricula": row.get('matricula', ''),
+            "timestamp": datetime.utcnow()
+        }
+        doc_ref.set(doc)
+        enviados += 1
 
-    paginated_df = new_df.iloc[start:start + limit].copy()
-    paginated_df["parcela"] = paginated_df["parcela_exibir"]
-    paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+    print(f"🔹 Total de registros enviados ao Firestore: {enviados}")
 
     # --- Colunas para exibir ---
     colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
     colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
     colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
 
-    # --- Montar HTML da tabela dinamicamente ---
     tbody_html = ""
     for _, row in paginated_df.iterrows():
         tbody_html += "<tr>"
@@ -360,13 +310,10 @@ def atualiza_dataframe():
             tbody_html += f"<td>{valor}</td>"
         tbody_html += "</tr>"
 
-    print(f"🔹 Enviando {len(paginated_df)} registros para o frontend.")
-
     return jsonify({
         "tbody": tbody_html,
         "next_start": next_start
     })
-
 
 # ============================================================
 # 🚪 LOGOUT
@@ -377,11 +324,9 @@ def logout():
     session.clear()
     return redirect(url_for('home'))
 
-
 # ============================================================
 # 🚀 EXECUÇÃO
 # ============================================================
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)
-

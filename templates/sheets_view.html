@@ -4,77 +4,35 @@
     <meta charset="UTF-8">
     <title>Dashboard Clientes</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background: #152B33;
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            background: white;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 10px;
-            text-align: center;
-        }
-        th {
-            background-color: #4CAF50;
-            color: white;
-        }
-        tr:nth-child(even) {
-            background-color: #f2f2f2;
-        }
-        button {
-            padding: 10px 20px;
-            margin-top: 15px;
-            cursor: pointer;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 6px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .info {
-            text-align: center;
-            margin-bottom: 15px;
-            color: #555;
-        }
+        body { font-family: Arial; margin: 40px; background: #152B33; color: #fff; }
+        table { border-collapse: collapse; width: 100%; background: white; color: black; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        button { padding: 10px 20px; margin-top: 15px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 6px; }
+        button:hover { background-color: #45a049; }
+        .info { text-align: center; margin-bottom: 15px; color: #555; }
+        .filtros { text-align: center; margin-bottom: 10px; }
+        .filtros input { padding: 5px; margin: 0 5px; }
     </style>
 </head>
 <body>
     <h2>Dashboard Clientes</h2>
-    
-    <div id="dashboard" data-start="{{ start | default(0) }}"></div>
 
+    <div class="filtros">
+        <input type="text" id="filter_uf" placeholder="Filtrar UF">
+        <input type="text" id="filter_orgao" placeholder="Filtrar Órgão">
+    </div>
 
     <div class="info">
         <p><b>Usuário:</b> {{ username }}</p>
-        <p>
-           <!-- Total planilha: {{ total_planilha }} |
-            Após filtro saldo ≥ 25k: {{ apos_filtro_saldo }} |
-            Após remover duplicados e Firebase: {{ apos_remover_firebase }}
-        </p>
-        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>-->
+        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>
     </div>
 
-   <table class="table table-striped">
+   <table>
     <thead>
         <tr>
-            <th>Nome</th>
-            <th>CPF</th>
-            <th>Banco</th>
-            <th>UF</th>
-            <th>Saldo Devedor</th>
-            <th>Parcela</th>
-            <th>Prazo</th>
+            <th>Nome</th><th>CPF</th><th>Banco</th><th>UF</th><th>Saldo Devedor</th><th>Parcela</th><th>Prazo</th>
             {% if table_data and table_data[0] %}
                 {% for col, val in table_data[0].items() %}
                     {% if 'telefone' in col %}
@@ -87,13 +45,8 @@
     <tbody id="tabela-body">
         {% for row in table_data %}
         <tr>
-            <td>{{ row.nome }}</td>
-            <td>{{ row.cpf }}</td>
-            <td>{{ row.banco }}</td>
-            <td>{{ row.uf }}</td>
-            <td>{{ row.saldo_devedor }}</td>
-            <td>{{ row.parcela }}</td>
-            <td>{{ row.prazo }}</td>
+            <td>{{ row.nome }}</td><td>{{ row.cpf }}</td><td>{{ row.banco }}</td><td>{{ row.uf }}</td>
+            <td>{{ row.saldo_devedor }}</td><td>{{ row.parcela }}</td><td>{{ row.prazo }}</td>
             {% for col, val in row.items() %}
                 {% if 'telefone' in col %}
                     <td>{{ val }}</td>
@@ -104,60 +57,42 @@
     </tbody>
 </table>
 
+<div style="text-align:center;">
+    <button id="btnAtualiza">🔁 Atualizar Clientes</button>
+</div>
 
-    <div style="text-align:center;">
-        <button id="btnAtualiza">🔁 Atualizar Clientes</button>
-    </div>
-
- <script>
+<script>
 document.addEventListener("DOMContentLoaded", function() {
-    console.log("🟢 Script carregado corretamente");
-
     const dashboard = document.getElementById('dashboard');
-    let currentStart = Number(dashboard.dataset.start) || 0;
+    let currentStart = Number(dashboard?.dataset.start || 0);
     const limit = 10;
     const btn = document.getElementById('btnAtualiza');
     const tbody = document.getElementById('tabela-body');
 
     async function atualizaClientes() {
-        console.log("🔵 Botão clicado! Start atual:", currentStart);
-        btn.disabled = true;
-        btn.innerText = "Carregando...";
+        btn.disabled = true; btn.innerText = "Carregando...";
+
+        const ufFiltro = document.getElementById('filter_uf').value.trim();
+        const orgaoFiltro = document.getElementById('filter_orgao').value.trim();
 
         try {
             const res = await fetch('/atualiza_dataframe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start: currentStart, limit: limit })
+                body: JSON.stringify({ start: currentStart, limit: limit, uf: ufFiltro, orgao: orgaoFiltro })
             });
-
             const data = await res.json();
-            console.log("🟣 Dados recebidos do servidor:", data);
-
             if (data.tbody) {
                 tbody.innerHTML = data.tbody;
-                currentStart = data.next_start ?? 0; // atualiza o cursor
-                console.log("🟠 Próximo start atualizado para:", currentStart);
+                currentStart = data.next_start ?? 0;
             }
-        } catch (err) {
-            console.error("❌ Erro ao atualizar clientes:", err);
-        } finally {
-            btn.disabled = false;
-            btn.innerText = "🔁 Atualizar Clientes";
-        }
+        } catch (err) { console.error("Erro ao atualizar clientes:", err); }
+        finally { btn.disabled = false; btn.innerText = "🔁 Atualizar Clientes"; }
     }
 
-    if (btn) {
-        btn.addEventListener('click', atualizaClientes);
-        console.log("✅ Evento de clique adicionado ao botão.");
-    } else {
-        console.error("❌ Botão não encontrado!");
-    }
+    btn.addEventListener('click', atualizaClientes);
 });
 </script>
-
-
-
 
 </body>
 </html>
