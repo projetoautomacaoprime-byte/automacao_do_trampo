@@ -3,20 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <title>Dashboard Clientes</title>
-    <style>
-        body { font-family: Arial; margin: 40px; background: #152B33; color: #fff; }
-        table { border-collapse: collapse; width: 100%; background: white; color: black; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
-        th { background-color: #4CAF50; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-        button { padding: 10px 20px; margin-top: 15px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 6px; }
-        button:hover { background-color: #45a049; }
-        .info { text-align: center; margin-bottom: 15px; color: #555; }
-        .filtros { text-align: center; margin-bottom: 10px; }
-        .filtros input { padding: 5px; margin: 0 5px; }
-    </style>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body>
+    <nav class="menu">
+  <h1 class="logo">Sistema Prime</h1>
+  <ul>
+    <li><a href="/divulgacao">Divulgação</a></li>
+    <li><a href="/consulta">Consultas</a></li>
+    <li><a href="/cadastro">Cadastro</a></li>
+    <li><a href="/logout">Sair</a></li>
+  </ul>
+</nav>
     <h2>Dashboard Clientes</h2>
 
     <div class="filtros">
