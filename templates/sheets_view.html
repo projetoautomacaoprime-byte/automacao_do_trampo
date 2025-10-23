@@ -3,56 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <title>Dashboard Clientes</title>
-    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body>
-    <nav class="menu">
-  <h1 class="logo">Sistema Prime</h1>
-  <ul>
-    <li><a href="/divulgacao">Divulgação</a></li>
-    <li><a href="/consulta">Consultas</a></li>
-    <li><a href="/cadastro">Cadastro</a></li>
-    <li><a href="/logout">Sair</a></li>
-  </ul>
+<nav class="menu">
+    <h1 class="logo">Sistema Prime</h1>
+    <ul>
+        <li><a href="/divulgacao">Divulgação</a></li>
+        <li><a href="/consulta">Consultas</a></li>
+        <li><a href="/cadastro">Cadastro</a></li>
+        <li><a href="/logout">Sair</a></li>
+    </ul>
 </nav>
-    <h2>Dashboard Clientes</h2>
 
-    <div class="filtros">
-        <input type="text" id="filter_uf" placeholder="Filtrar UF">
-        <input type="text" id="filter_orgao" placeholder="Filtrar Órgão">
-    </div>
+<h2>Dashboard Clientes</h2>
 
-    <div class="info">
-        <p><b>Usuário:</b> {{ username }}</p>
-        <p>Exibindo {{ exibidos }} clientes ({{ start }} até {{ start + exibidos }})</p>
-    </div>
+<div class="filtros">
+    <input type="text" id="filter_saldo" placeholder="Filtrar Saldo Mínimo">
+    <input type="text" id="filter_uf" placeholder="Filtrar UF">
+    <input type="text" id="filter_orgao" placeholder="Filtrar Órgão">
+    <button id="btnAplicarFiltros">Aplicar Filtros</button>
+</div>
 
-   <table>
+<div class="info">
+    <p><b>Usuário:</b> {{ username }}</p>
+    <p>Exibindo <span id="exibidos">0</span> clientes</p>
+</div>
+
+<table>
     <thead>
         <tr>
-            <th>Nome</th><th>CPF</th><th>Banco</th><th>UF</th><th>Saldo Devedor</th><th>Parcela</th><th>Prazo</th>
-            {% if table_data and table_data[0] %}
-                {% for col, val in table_data[0].items() %}
-                    {% if 'telefone' in col %}
-                        <th>{{ col.replace('_', ' ') | capitalize }}</th>
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
+            <th>Nome</th>
+            <th>CPF</th>
+            <th>Banco</th>
+            <th>UF</th>
+            <th>Saldo Devedor</th>
+            <th>Parcela</th>
+            <th>Prazo</th>
+            <th>Telefone_1</th>
+            <th>Telefone_2</th>
+            <th>Telefone_3</th>
+            <th id="extraColsHeader"></th>
         </tr>
     </thead>
     <tbody id="tabela-body">
-        {% for row in table_data %}
-        <tr>
-            <td>{{ row.nome }}</td><td>{{ row.cpf }}</td><td>{{ row.banco }}</td><td>{{ row.uf }}</td>
-            <td>{{ row.saldo_devedor }}</td><td>{{ row.parcela }}</td><td>{{ row.prazo }}</td>
-            {% for col, val in row.items() %}
-                {% if 'telefone' in col %}
-                    <td>{{ val }}</td>
-                {% endif %}
-            {% endfor %}
-        </tr>
-        {% endfor %}
+        <!-- Começa vazio -->
     </tbody>
 </table>
 
@@ -62,34 +57,62 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    const dashboard = document.getElementById('dashboard');
-    let currentStart = Number(dashboard?.dataset.start || 0);
+    let currentStart = 0;
     const limit = 10;
-    const btn = document.getElementById('btnAtualiza');
+    const btnAtualiza = document.getElementById('btnAtualiza');
+    const btnAplicarFiltros = document.getElementById('btnAplicarFiltros');
     const tbody = document.getElementById('tabela-body');
+    const exibidosSpan = document.getElementById('exibidos');
 
+    // Armazenar filtros
+    const filtrosSalvos = { saldo: '', uf: '', orgao: '' };
+
+    // Botão aplicar filtros: salva valores e reinicia paginação
+    btnAplicarFiltros.addEventListener('click', function() {
+        filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
+        filtrosSalvos.uf = document.getElementById('filter_uf').value.trim();
+        filtrosSalvos.orgao = document.getElementById('filter_orgao').value.trim();
+        currentStart = 0;
+        tbody.innerHTML = "";  // Limpar tabela
+        exibidosSpan.innerText = 0;
+    });
+
+    // Atualizar clientes via fetch
     async function atualizaClientes() {
-        btn.disabled = true; btn.innerText = "Carregando...";
-
-        const ufFiltro = document.getElementById('filter_uf').value.trim();
-        const orgaoFiltro = document.getElementById('filter_orgao').value.trim();
+        btnAtualiza.disabled = true;
+        btnAtualiza.innerText = "Carregando...";
 
         try {
             const res = await fetch('/atualiza_dataframe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start: currentStart, limit: limit, uf: ufFiltro, orgao: orgaoFiltro })
+                body: JSON.stringify({
+                    start: currentStart,
+                    limit: limit,
+                    saldo: filtrosSalvos.saldo,
+                    uf: filtrosSalvos.uf,
+                    orgao: filtrosSalvos.orgao
+                })
             });
             const data = await res.json();
             if (data.tbody) {
+                // Substitui os dados antigos, não acrescenta
                 tbody.innerHTML = data.tbody;
                 currentStart = data.next_start ?? 0;
+                exibidosSpan.innerText = tbody.children.length;
             }
-        } catch (err) { console.error("Erro ao atualizar clientes:", err); }
-        finally { btn.disabled = false; btn.innerText = "🔁 Atualizar Clientes"; }
+        } catch (err) {
+            console.error("Erro ao atualizar clientes:", err);
+        } finally {
+            btnAtualiza.disabled = false;
+            btnAtualiza.innerText = "🔁 Atualizar Clientes";
+        }
     }
 
-    btn.addEventListener('click', atualizaClientes);
+    btnAtualiza.addEventListener('click', atualizaClientes);
+
+    // Opcional: carrega automaticamente os primeiros 10 ao abrir
+    //atualizaClientes();
 });
 </script>
 

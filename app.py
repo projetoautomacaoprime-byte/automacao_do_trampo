@@ -115,19 +115,18 @@ def login():
 # 🧩 FILTROS CENTRALIZADOS
 # ============================================================
 
-def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None) -> pd.DataFrame:
-    filtered_df = df[df["saldo_devedor_float"] >= 25000].copy()
+def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_filtro=None) -> pd.DataFrame:
+    saldo_min = float(saldo_filtro) if saldo_filtro else 25000
+    filtered_df = df[df["saldo_devedor_float"] >= saldo_min].copy()
     filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in filtered_df.columns else ""
     filtered_df['idade'] = filtered_df.get('idade', 0)
 
-    # Bancos bloqueados
     blocked_banks = [""]
     blocked_banks = [b.lower() for b in blocked_banks]
 
     filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
     filtered_df = filtered_df[filtered_df['idade'] <= 70]
 
-    # Filtros opcionais
     if uf_filtro:
         filtered_df = filtered_df[filtered_df['uf'].str.upper() == uf_filtro.upper()]
     if orgao_filtro:
@@ -155,11 +154,8 @@ def dashboard():
         start = 0
     limit = 10
 
-    # --- Ler planilha ---
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
-    print(f"\n✅ Planilha carregada: {len(df)} linhas")
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-
     for col in ["parcela", "prazo", "idade"]:
         if col in df.columns:
             df[col] = df[col].apply(parse_brl)
@@ -167,68 +163,50 @@ def dashboard():
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
 
-    filtered_df = aplicar_filtros(df)
+    saldo_filtro = request.args.get('saldo', None)
+    uf_filtro = request.args.get('uf', None)
+    orgao_filtro = request.args.get('orgao', None)
 
-    # --- Gerar doc_id e remover duplicados ---
+    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
     filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
-    # --- Remove clientes já existentes no Firebase ---
-    existing_docs = db.collection('fluxo_pessoas').stream()
-    existing_ids = set(doc.id for doc in existing_docs)
-    new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
+    # --- Comentar salvamento no Firebase ---
+    # existing_docs = db.collection('fluxo_pessoas').stream()
+    # existing_ids = set(doc.id for doc in existing_docs)
+    # new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
+    # enviados = 0
+    # for _, row in new_df.iterrows():
+    #     doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
+    #     doc = {
+    #         "cpf": row['cpf'],
+    #         "nome": row['nome'],
+    #         "dt_nascimento": row.get('dt_nascimento', ''),
+    #         "idade": row['idade'],
+    #         "banco": row['banco'],
+    #         "uf": row['uf'],
+    #         "parcela": row.get('parcela_exibir', '0,00'),
+    #         "prazo": row['prazo'],
+    #         "saldo_devedor": format_brl(row['saldo_devedor_float']),
+    #         "orgao": row.get('orgao', ''),
+    #         "matricula": row.get('matricula', ''),
+    #         "timestamp": datetime.utcnow()
+    #     }
+    #     doc_ref.set(doc)
+    #     enviados += 1
+    # print(f"\n🔥 Total de registros enviados ao Firestore: {enviados}")
 
-    total_planilha = len(df)
-    apos_filtro_saldo = len(df[df["saldo_devedor_float"] >= 25000])
-    apos_remover_locais = len(filtered_df)
-    apos_remover_firebase = len(new_df)
-
-    paginated_df = new_df.iloc[start:start + limit].copy()
+    paginated_df = filtered_df.iloc[start:start + limit].copy()
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
-    next_start = start + limit if start + limit < len(new_df) else None
-
-    # --- Salvar clientes da página atual no Firebase ---
-    enviados = 0
-    for _, row in paginated_df.iterrows():
-        doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
-        doc = {
-            "cpf": row['cpf'],
-            "nome": row['nome'],
-            "dt_nascimento": row.get('dt_nascimento', ''),
-            "idade": row['idade'],
-            "banco": row['banco'],
-            "uf": row['uf'],
-            "parcela": row.get('parcela_exibir', '0,00'),
-            "prazo": row['prazo'],
-            "saldo_devedor": format_brl(row['saldo_devedor_float']),
-            "orgao": row.get('orgao', ''),
-            "matricula": row.get('matricula', ''),
-            "timestamp": datetime.utcnow()
-        }
-        doc_ref.set(doc)
-        enviados += 1
-
-    print(f"\n🔥 Total de registros enviados ao Firestore: {enviados}")
-
-    # --- Colunas para exibir ---
-    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
-    colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
-    colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
-
-    table_data = paginated_df[colunas].to_dict(orient="records")
+    table_data = paginated_df.to_dict(orient="records")
 
     return render_template(
         'sheets_view.html',
         table_data=table_data,
         start=start,
-        next_start=next_start,
         username=session.get('username'),
-        total_planilha=total_planilha,
-        apos_filtro_saldo=apos_filtro_saldo,
-        apos_remover_locais=apos_remover_locais,
-        apos_remover_firebase=apos_remover_firebase,
         exibidos=len(paginated_df)
     )
 
@@ -243,10 +221,8 @@ def atualiza_dataframe():
     data = request.get_json()
     start = int(data.get('start', 0))
     limit = int(data.get('limit', 10))
-    uf_filtro = data.get('uf', None)
-    orgao_filtro = data.get('orgao', None)
 
-    # --- Ler planilha ---
+    # --- Ler planilha apenas uma vez ---
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
     for col in ["parcela", "prazo", "idade"]:
@@ -256,12 +232,18 @@ def atualiza_dataframe():
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
 
-    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro)
+    # --- Aplicar filtros passados via JSON ---
+    saldo_filtro = data.get('saldo', None)
+    uf_filtro = data.get('uf', None)
+    orgao_filtro = data.get('orgao', None)
 
-    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
+    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
+    filtered_df['doc_id'] = filtered_df.apply(
+        lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1
+    )
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
-    # --- Remove clientes já existentes no Firebase ---
+    # --- Remove clientes já existentes (opcional) ---
     existing_docs = db.collection('fluxo_pessoas').stream()
     existing_ids = set(doc.id for doc in existing_docs)
     new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
@@ -270,34 +252,34 @@ def atualiza_dataframe():
     paginated_df = new_df.iloc[start:start + limit].copy()
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+
+    # --- Atualiza start para próxima página ---
     next_start = start + limit
     if next_start >= len(new_df):
-        next_start = 0
+        next_start = 0  # reinicia ou pode ser None
 
-    # --- Salva clientes da página atual ---
-    enviados = 0
-    for _, row in paginated_df.iterrows():
-        doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
-        doc = {
-            "cpf": row['cpf'],
-            "nome": row['nome'],
-            "dt_nascimento": row.get('dt_nascimento', ''),
-            "idade": row['idade'],
-            "banco": row['banco'],
-            "uf": row['uf'],
-            "parcela": row.get('parcela_exibir', '0,00'),
-            "prazo": row['prazo'],
-            "saldo_devedor": format_brl(row['saldo_devedor_float']),
-            "orgao": row.get('orgao', ''),
-            "matricula": row.get('matricula', ''),
-            "timestamp": datetime.utcnow()
-        }
-        doc_ref.set(doc)
-        enviados += 1
+    # --- Salvar clientes no Firebase (comentado) ---
+    # enviados = 0
+    # for _, row in paginated_df.iterrows():
+    #     doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
+    #     doc = {
+    #         "cpf": row['cpf'],
+    #         "nome": row['nome'],
+    #         "dt_nascimento": row.get('dt_nascimento', ''),
+    #         "idade": row['idade'],
+    #         "banco": row['banco'],
+    #         "uf": row['uf'],
+    #         "parcela": row.get('parcela_exibir', '0,00'),
+    #         "prazo": row['prazo'],
+    #         "saldo_devedor": format_brl(row['saldo_devedor_float']),
+    #         "orgao": row.get('orgao', ''),
+    #         "matricula": row.get('matricula', ''),
+    #         "timestamp": datetime.utcnow()
+    #     }
+    #     doc_ref.set(doc)
+    #     enviados += 1
 
-    print(f"🔹 Total de registros enviados ao Firestore: {enviados}")
-
-    # --- Colunas para exibir ---
+    # --- Preparar HTML para retornar ---
     colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
     colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
     colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
@@ -314,6 +296,7 @@ def atualiza_dataframe():
         "tbody": tbody_html,
         "next_start": next_start
     })
+
 
 # ============================================================
 # 🚪 LOGOUT
