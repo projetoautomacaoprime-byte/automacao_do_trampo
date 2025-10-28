@@ -4,6 +4,7 @@
     src: url('/static/fonts/Alta.ttf') format('truetype');
     font-weight: normal;
     font-style: normal;
+    .tab-content { display: block; }      /* Aba ativa */
 }
 
 body 
@@ -18,6 +19,31 @@ body
     align-items: center;
     height: 100vh;               /* Ocupa 100% da altura da janela */
 }
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap; /* Quebra linha se tiver mais de 10 */
+    gap: 4px;
+    margin-bottom: 20px;
+}
+.tab-link {
+    padding: 8px 12px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+}
+.tab-link.active {
+    background: #ddd;
+    font-weight: bold;
+}
+.tab-content {
+    border: 1px solid #ccc;
+    padding: 10px;
+}
+.tab-content.hidden {
+    display: none;
+}
+
 
 .container 
 {

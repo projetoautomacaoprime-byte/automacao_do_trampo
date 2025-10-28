@@ -248,15 +248,17 @@ def atualiza_dataframe():
     existing_ids = set(doc.id for doc in existing_docs)
     new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
 
-    # --- Paginação ---
-    paginated_df = new_df.iloc[start:start + limit].copy()
+    # --- Preparar JSON de clientes ---
+    paginated_df = filtered_df.iloc[start:start + limit].copy()
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
-    # --- Atualiza start para próxima página ---
+    clientes_json = paginated_df.to_dict(orient="records")
+
+# --- Retornar JSON diretamente ---
     next_start = start + limit
-    if next_start >= len(new_df):
-        next_start = 0  # reinicia ou pode ser None
+    if next_start >= len(filtered_df):
+        next_start = 0
 
     # --- Salvar clientes no Firebase (comentado) ---
     # enviados = 0
@@ -293,10 +295,9 @@ def atualiza_dataframe():
         tbody_html += "</tr>"
 
     return jsonify({
-        "tbody": tbody_html,
-        "next_start": next_start
-    })
-
+    "clientes": clientes_json,
+    "next_start": next_start
+})
 
 # ============================================================
 # 🚪 LOGOUT
