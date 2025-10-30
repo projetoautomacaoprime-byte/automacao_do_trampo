@@ -209,7 +209,7 @@ def dashboard():
         username=session.get('username'),
         exibidos=len(paginated_df)
     )
-print("Teste de commit e merge funcionando!")
+
 
 # ============================================================
 # 🔁 AJAX ATUALIZAÇÃO

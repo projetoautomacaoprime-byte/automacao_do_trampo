@@ -54,8 +54,6 @@ body
 .logo 
 {
     width: 390px; /* ajuste conforme o tamanho da sua imagem */
-<<<<<<< HEAD
-=======
     margin-bottom: 40px;
     margin: 0;
     padding: 0;
@@ -63,9 +61,7 @@ body
     background-size: cover;
     color: #f5e6b3;
 }
->>>>>>> Front-end
 
-}
 .descricao
 {
     font-size: 14px;
