@@ -3,9 +3,10 @@
     font-family: 'Alta';
     src: url('/static/fonts/Alta.ttf') format('truetype');
     font-weight: normal;
-    font-style: normal;
-    .tab-content { display: block; }      /* Aba ativa */
+    font-style: normal;   
 }
+
+.tab-content { display: block; }      /* Aba ativa */
 
 body 
 {
@@ -53,16 +54,6 @@ body
 .logo 
 {
     width: 390px; /* ajuste conforme o tamanho da sua imagem */
-    margin-bottom: 40px;
-<<<<<<< HEAD
-=======
-    margin: 0;
-    padding: 0;
-    height: 100vh;
-    background-size: cover;
-    color: #f5e6b3;
-}
->>>>>>> f38f7c20802ed13d079dc16a088a41c2c8343a6a
 
 }
 .descricao
