@@ -282,9 +282,8 @@ def atualiza_dataframe():
     #     enviados += 1
 
     # --- Preparar HTML para retornar ---
-    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo"]
-    colunas_telefone = [c for c in paginated_df.columns if "telefone" in c.lower()]
-    colunas = [c for c in (colunas_base + colunas_telefone) if c in paginated_df.columns]
+    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo","telefone_movel_1","telefone_movel_2","telefone_movel_3"]
+    colunas = [c for c in (colunas_base) if c in paginated_df.columns]
 
     tbody_html = ""
     for _, row in paginated_df.iterrows():
