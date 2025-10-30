@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Clientes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <style>
+        .tabs { margin-bottom: 20px; }
+        .tab-link { padding: 8px 12px; margin-right: 4px; cursor: pointer; border: 1px solid #ccc; background: #f0f0f0; }
+        .tab-link.active { background: #ddd; font-weight: bold; }
+        .tab-content { border: 1px solid #ccc; padding: 10px; display: none; }
+    </style>
+</head>
+<body>
+<nav class="menu">
+    <h1 class="logo">Sistema Prime</h1>
+    <ul>
+        <li><a href="/divulgacao">Divulgação</a></li>
+        <li><a href="/consulta">Consultas</a></li>
+        <li><a href="/cadastro">Cadastro</a></li>
+        <li><a href="/logout">Sair</a></li>
+    </ul>
+</nav>
+
+<h2>Dashboard Clientes</h2>
+
+<div class="filtros">
+    <input type="text" id="filter_saldo" placeholder="Filtrar Saldo Mínimo">
+    <input type="text" id="filter_uf" placeholder="Filtrar UF">
+    <input type="text" id="filter_orgao" placeholder="Filtrar Órgão">
+    <button id="btnAplicarFiltros">Aplicar Filtros</button>
+</div>
+
+<div class="info">
+    <p><b>Usuário:</b> {{ username }}</p>
+    <p>Exibindo <span id="exibidos">0</span> clientes</p>
+</div>
+
+<!-- Container das abas e conteúdo -->
+<div class="tabs" id="tabs-container"></div>
+<div id="clientes-container"></div>
+
+<div style="text-align:center; margin-top: 10px;">
+    <button id="btnAtualiza">🔁 Mostrar Próximos 10 Clientes</button>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const btnAtualiza = document.getElementById('btnAtualiza');
+    const btnAplicarFiltros = document.getElementById('btnAplicarFiltros');
+    const tabsContainer = document.getElementById('tabs-container');
+    const clientesContainer = document.getElementById('clientes-container');
+    const exibidosSpan = document.getElementById('exibidos');
+
+    const filtrosSalvos = { saldo: '', uf: '', orgao: '' };
+    let currentStart = 0;
+
+    // Campos que você quer exibir em cada aba
+    const camposExibir = ["nome","cpf","banco","uf","saldo_devedor","parcela","prazo"];
+
+    // Botão aplicar filtros: salva valores e reinicia
+    btnAplicarFiltros.addEventListener('click', function() {
+        filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
+        filtrosSalvos.uf = document.getElementById('filter_uf').value.trim();
+        filtrosSalvos.orgao = document.getElementById('filter_orgao').value.trim();
+        currentStart = 0;
+        exibidosSpan.innerText = 0;
+        tabsContainer.innerHTML = "";
+        clientesContainer.innerHTML = "";
+    });
+
+    // Atualiza clientes e cria abas
+    async function atualizaClientes() {
+        btnAtualiza.disabled = true;
+        btnAtualiza.innerText = "Carregando...";
+
+        try {
+            const res = await fetch('/atualiza_dataframe', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    start: currentStart,
+                    limit: 10,
+                    saldo: filtrosSalvos.saldo,
+                    uf: filtrosSalvos.uf,
+                    orgao: filtrosSalvos.orgao
+                })
+            });
+            const data = await res.json();
+            const clientes = data.clientes || [];
+
+            // Limpar conteúdo anterior antes de mostrar os próximos 10
+            tabsContainer.innerHTML = "";
+            clientesContainer.innerHTML = "";
+
+            clientes.forEach((cliente, index) => {
+                const globalIndex = index;
+
+                // Criar aba
+                const tab = document.createElement('button');
+                tab.className = 'tab-link';
+                tab.innerText = `Cliente ${currentStart + index + 1}`;
+                tab.onclick = () => openCliente(globalIndex);
+                tabsContainer.appendChild(tab);
+
+                // Criar conteúdo do cliente
+                const div = document.createElement('div');
+                div.className = 'tab-content';
+                div.id = `cliente_${globalIndex}`;
+                if(globalIndex !== 0) div.style.display = 'none';
+
+                camposExibir.forEach(key => {
+                    if(cliente[key] !== null && cliente[key] !== undefined){
+                        const p = document.createElement('p');
+                        p.innerHTML = `<b>${key}:</b> ${cliente[key]}`;
+                        div.appendChild(p);
+                    }
+                });
+
+                clientesContainer.appendChild(div);
+            });
+
+            // Atualizar quantidade exibida
+            exibidosSpan.innerText = clientes.length;
+
+            // Ativa a primeira aba automaticamente
+            if(clientes.length > 0) openCliente(0);
+
+            // Atualiza o start para o próximo batch
+            currentStart += clientes.length;
+            if(currentStart >= data.total_count || clientes.length === 0) currentStart = 0;
+
+        } catch(e) {
+            console.error(e);
+        } finally {
+            btnAtualiza.disabled = false;
+            btnAtualiza.innerText = "🔁 Mostrar Próximos 10 Clientes";
+        }
+    }
+
+    btnAtualiza.addEventListener('click', atualizaClientes);
+
+    function openCliente(index) {
+        const tabs = document.querySelectorAll('.tab-link');
+        const contents = document.querySelectorAll('.tab-content');
+
+        tabs.forEach((t,i) => t.classList.toggle('active', i === index));
+        contents.forEach((c,i) => c.style.display = (i === index ? 'block' : 'none'));
+    }
+});
+</script>
+
+</body>
+</html>

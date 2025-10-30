@@ -1,0 +1,10 @@
+# Bibliotecas principais do projeto
+pandas
+gspread
+selenium
+flask
+firebase-admin
+
+# Dependências auxiliares (instaladas junto, mas bom registrar)
+requests
+oauth2client

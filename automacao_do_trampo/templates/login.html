@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sistema Prime</title>
+
+        <!-- Importa o arquivo CSS localizado em /static/css/style.css -->
+         <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    </head>
+    <body>
+        <!-- Container principal centralizado na tela.
+        Imagem e formulário de login.-->
+        <div class="container">
+           <img src="static/img/logo.png" alt="Logo Sistema Prime" class="logo">
+    
+            <!-- Formulário de login: envia dados para a rota /login (método POST) -->
+            <form action="{{ url_for('login') }}" method="POST">
+                <input type="text" name="username" placeholder="Usuário" required>
+                <input type="password" name="password" placeholder="Senha" required>
+                <button type="submit">Entrar</button>
+            </form>
+        </div>
+    </body>
+</html>    
