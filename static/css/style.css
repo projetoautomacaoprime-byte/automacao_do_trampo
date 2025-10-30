@@ -54,6 +54,11 @@ body
 {
     width: 390px; /* ajuste conforme o tamanho da sua imagem */
     margin-bottom: 45px;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    background-size: cover;
+    color: #f5e6b3;
 }
 
 .descricao
