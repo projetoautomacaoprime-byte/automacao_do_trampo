@@ -54,7 +54,11 @@ body
 .logo 
 {
     width: 390px; /* ajuste conforme o tamanho da sua imagem */
+<<<<<<< HEAD
     margin-bottom: 40px;
+=======
+    margin-bottom: 55px;
+>>>>>>> front-end
     margin: 0;
     padding: 0;
     height: 100vh;
