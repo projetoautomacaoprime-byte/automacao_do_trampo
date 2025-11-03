@@ -118,7 +118,7 @@ def login():
 def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_filtro=None) -> pd.DataFrame:
     saldo_min = float(saldo_filtro) if saldo_filtro else 25000
     filtered_df = df[df["saldo_devedor_float"] >= saldo_min].copy()
-    filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in filtered_df.columns else ""
+    filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in df.columns else ""
     filtered_df['idade'] = filtered_df.get('idade', 0)
 
     blocked_banks = [""]
@@ -150,7 +150,7 @@ def dashboard():
     start = request.args.get('start', 0)
     try:
         start = int(start)
-    except (ValueError, TypeError):
+    except:
         start = 0
     limit = 10
 
@@ -171,31 +171,6 @@ def dashboard():
     filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
-    # --- Comentar salvamento no Firebase ---
-    # existing_docs = db.collection('fluxo_pessoas').stream()
-    # existing_ids = set(doc.id for doc in existing_docs)
-    # new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
-    # enviados = 0
-    # for _, row in new_df.iterrows():
-    #     doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
-    #     doc = {
-    #         "cpf": row['cpf'],
-    #         "nome": row['nome'],
-    #         "dt_nascimento": row.get('dt_nascimento', ''),
-    #         "idade": row['idade'],
-    #         "banco": row['banco'],
-    #         "uf": row['uf'],
-    #         "parcela": row.get('parcela_exibir', '0,00'),
-    #         "prazo": row['prazo'],
-    #         "saldo_devedor": format_brl(row['saldo_devedor_float']),
-    #         "orgao": row.get('orgao', ''),
-    #         "matricula": row.get('matricula', ''),
-    #         "timestamp": datetime.utcnow()
-    #     }
-    #     doc_ref.set(doc)
-    #     enviados += 1
-    # print(f"\n🔥 Total de registros enviados ao Firestore: {enviados}")
-
     paginated_df = filtered_df.iloc[start:start + limit].copy()
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
@@ -204,26 +179,22 @@ def dashboard():
 
     return render_template(
         'sheets_view.html',
-        table_data=table_data,
-        start=start,
+        table_data=[],  # começa vazio
+        start=0,
         username=session.get('username'),
-        exibidos=len(paginated_df)
+        exibidos=0
     )
 
-
 # ============================================================
-# 🔁 AJAX ATUALIZAÇÃO
+# 🔁 AJAX ATUALIZAÇÃO (carregar mais 10)
 # ============================================================
 
 @app.route('/atualiza_dataframe', methods=['POST'])
 def atualiza_dataframe():
-    print("\n🔥 ROTA ATUALIZAÇÃO ACIONADA")
-
     data = request.get_json()
     start = int(data.get('start', 0))
     limit = int(data.get('limit', 10))
 
-    # --- Ler planilha apenas uma vez ---
     df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
     for col in ["parcela", "prazo", "idade"]:
@@ -233,76 +204,32 @@ def atualiza_dataframe():
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
 
-    # --- Aplicar filtros passados via JSON ---
     saldo_filtro = data.get('saldo', None)
     uf_filtro = data.get('uf', None)
     orgao_filtro = data.get('orgao', None)
 
     filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
-    filtered_df['doc_id'] = filtered_df.apply(
-        lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1
-    )
+    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
-    # --- Remove clientes já existentes (opcional) ---
-    existing_docs = db.collection('fluxo_pessoas').stream()
-    existing_ids = set(doc.id for doc in existing_docs)
-    new_df = filtered_df[~filtered_df['doc_id'].isin(existing_ids)]
-
-    # --- Preparar JSON de clientes ---
     paginated_df = filtered_df.iloc[start:start + limit].copy()
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
     clientes_json = paginated_df.to_dict(orient="records")
-
-# --- Retornar JSON diretamente ---
     next_start = start + limit
     if next_start >= len(filtered_df):
         next_start = 0
 
-    # --- Salvar clientes no Firebase (comentado) ---
-    # enviados = 0
-    # for _, row in paginated_df.iterrows():
-    #     doc_ref = db.collection('fluxo_pessoas').document(row['doc_id'])
-    #     doc = {
-    #         "cpf": row['cpf'],
-    #         "nome": row['nome'],
-    #         "dt_nascimento": row.get('dt_nascimento', ''),
-    #         "idade": row['idade'],
-    #         "banco": row['banco'],
-    #         "uf": row['uf'],
-    #         "parcela": row.get('parcela_exibir', '0,00'),
-    #         "prazo": row['prazo'],
-    #         "saldo_devedor": format_brl(row['saldo_devedor_float']),
-    #         "orgao": row.get('orgao', ''),
-    #         "matricula": row.get('matricula', ''),
-    #         "timestamp": datetime.utcnow()
-    #     }
-    #     doc_ref.set(doc)
-    #     enviados += 1
-
-    # --- Preparar HTML para retornar ---
-    colunas_base = ["nome", "cpf", "banco", "uf", "saldo_devedor", "parcela", "prazo","telefone_movel_1","telefone_movel_2","telefone_movel_3"]
-    colunas = [c for c in (colunas_base) if c in paginated_df.columns]
-
-    tbody_html = ""
-    for _, row in paginated_df.iterrows():
-        tbody_html += "<tr>"
-        for c in colunas:
-            valor = row.get(c, "")
-            tbody_html += f"<td>{valor}</td>"
-        tbody_html += "</tr>"
-
     return jsonify({
-    "clientes": clientes_json,
-    "next_start": next_start
-    
-})
+        "clientes": clientes_json,
+        "next_start": next_start
+    })
 
 # ============================================================
-# 🚪 LOGOUT
+# 📝 SALVAR CLIENTE (botão)
 # ============================================================
+
 @app.route('/salvar_cliente', methods=['POST'])
 def salvar_cliente():
     try:
@@ -325,7 +252,9 @@ def salvar_cliente():
         print("Erro geral do servidor:", e)
         return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': 'Erro inesperado no servidor.'}), 500
 
-
+# ============================================================
+# 🚪 LOGOUT
+# ============================================================
 
 @app.route('/logout')
 def logout():

@@ -116,6 +116,29 @@ document.addEventListener("DOMContentLoaded", function() {
                 btnSalvar.style.float = 'right';
                 btnSalvar.style.marginBottom = '10px';
                 btnSalvar.onclick = () => salvarCliente(cliente);
+                // --- Criar dropdown de divulgador ---
+                const labelDiv = document.createElement('label');
+                labelDiv.innerText = 'Divulgador: ';
+                labelDiv.style.display = 'block';
+                labelDiv.style.marginBottom = '5px';
+
+                const selectDiv = document.createElement('select');
+                selectDiv.name = 'divulgador';
+                selectDiv.style.width = '100%';
+                selectDiv.style.marginBottom = '10px';
+
+                // Exemplo de opções, você pode ajustar os nomes
+                const divulgadores = ['João', 'Maria', 'Carlos', 'Ana'];
+                divulgadores.forEach(nome => {
+                    const option = document.createElement('option');
+                    option.value = nome;
+                    option.innerText = nome;
+                    selectDiv.appendChild(option);
+                });
+
+                labelDiv.appendChild(selectDiv);
+                div.appendChild(labelDiv);
+
                 div.appendChild(btnSalvar);
 
                 // --- Exibir campos ---

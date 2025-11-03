@@ -10,15 +10,14 @@
 
 body 
 {
-    margin: 0;
-    padding: 0;
-    background-color: #152B33;   /* Tom azul */
-    font-family: 'Poppins', sans-serif; /* Fonte */
-    color: #f8f8f8;              /* Texto claro */
-    display: flex;               /* Centraliza o conteúdo */
-    justify-content: center;
-    align-items: center;
-    height: 100vh;               /* Ocupa 100% da altura da janela */
+              /* Ocupa 100% da altura da janela */
+     
+    background-image: url('../img/logo.jpg'); /* caminho relativo à pasta css */
+    background-size: cover;       /* cobre toda a tela */
+    background-repeat: no-repeat; /* não repete a imagem */
+    background-position: center;  /* centraliza a imagem */
+    height: 100vh;                /* garante que o body ocupe toda a altura da tela */
+    margin: 0;                    /* remove margens padrão */
 }
 
 .tabs {
@@ -53,14 +52,11 @@ body
 
 .logo 
 {
-    width: 390px; /* ajuste conforme o tamanho da sua imagem */
-    margin-bottom: 55px;
-    margin: 0;
-    padding: 0;
-    height: 100vh;
-    background-size: cover;
-    color: #f5e6b3;
+    width: 390px;
+    margin-bottom: 20px; /* espaço entre logo e formulário */
 }
+
+
 
 .descricao
 {
