@@ -58,7 +58,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Campos que você quer exibir em cada aba
     const camposExibir = ["nome","cpf","banco","uf","saldo_devedor","parcela","prazo","telefone_movel_1","telefone_movel_2","telefone_movel_3"];
 
-    // Botão aplicar filtros: salva valores e reinicia
+    // Botão aplicar filtros
     btnAplicarFiltros.addEventListener('click', function() {
         filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
         filtrosSalvos.uf = document.getElementById('filter_uf').value.trim();
@@ -69,7 +69,7 @@ document.addEventListener("DOMContentLoaded", function() {
         clientesContainer.innerHTML = "";
     });
 
-    // Atualiza clientes e cria abas
+    // --- Função principal para atualizar os clientes ---
     async function atualizaClientes() {
         btnAtualiza.disabled = true;
         btnAtualiza.innerText = "Carregando...";
@@ -86,29 +86,39 @@ document.addEventListener("DOMContentLoaded", function() {
                     orgao: filtrosSalvos.orgao
                 })
             });
+
             const data = await res.json();
             const clientes = data.clientes || [];
 
-            // Limpar conteúdo anterior antes de mostrar os próximos 10
+            // Limpa antes de mostrar os próximos
             tabsContainer.innerHTML = "";
             clientesContainer.innerHTML = "";
 
             clientes.forEach((cliente, index) => {
                 const globalIndex = index;
 
-                // Criar aba
+                // --- Criar botão de aba ---
                 const tab = document.createElement('button');
                 tab.className = 'tab-link';
                 tab.innerText = `Cliente ${currentStart + index + 1}`;
                 tab.onclick = () => openCliente(globalIndex);
                 tabsContainer.appendChild(tab);
 
-                // Criar conteúdo do cliente
+                // --- Criar div do conteúdo ---
                 const div = document.createElement('div');
                 div.className = 'tab-content';
                 div.id = `cliente_${globalIndex}`;
                 if(globalIndex !== 0) div.style.display = 'none';
 
+                // --- Adicionar botão de salvar ---
+                const btnSalvar = document.createElement('button');
+                btnSalvar.innerText = 'Salvar Cliente';
+                btnSalvar.style.float = 'right';
+                btnSalvar.style.marginBottom = '10px';
+                btnSalvar.onclick = () => salvarCliente(cliente);
+                div.appendChild(btnSalvar);
+
+                // --- Exibir campos ---
                 camposExibir.forEach(key => {
                     if(cliente[key] !== null && cliente[key] !== undefined){
                         const p = document.createElement('p');
@@ -120,26 +130,25 @@ document.addEventListener("DOMContentLoaded", function() {
                 clientesContainer.appendChild(div);
             });
 
-            // Atualizar quantidade exibida
             exibidosSpan.innerText = clientes.length;
 
-            // Ativa a primeira aba automaticamente
             if(clientes.length > 0) openCliente(0);
 
-            // Atualiza o start para o próximo batch
             currentStart += clientes.length;
             if(currentStart >= data.total_count || clientes.length === 0) currentStart = 0;
 
         } catch(e) {
-            console.error(e);
+            console.error('Erro ao atualizar clientes:', e);
         } finally {
             btnAtualiza.disabled = false;
             btnAtualiza.innerText = "🔁 Mostrar Próximos 10 Clientes";
         }
     }
 
+    // --- Clique para atualizar clientes ---
     btnAtualiza.addEventListener('click', atualizaClientes);
 
+    // --- Alternar abas ---
     function openCliente(index) {
         const tabs = document.querySelectorAll('.tab-link');
         const contents = document.querySelectorAll('.tab-content');
@@ -147,8 +156,50 @@ document.addEventListener("DOMContentLoaded", function() {
         tabs.forEach((t,i) => t.classList.toggle('active', i === index));
         contents.forEach((c,i) => c.style.display = (i === index ? 'block' : 'none'));
     }
+
+    // --- Função de salvar cliente ---
+    async function salvarCliente(cliente) {
+  try {
+    const res = await fetch('/salvar_cliente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cliente)
+    });
+
+    if (!res.ok) {
+      throw new Error(`Erro HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+      alert('✅ Cliente salvo com sucesso!');
+    } else {
+      switch(data.tipo) {
+        case 'dados':
+          alert('⚠️ Dados inválidos: ' + data.mensagem);
+          break;
+        case 'firebase':
+          alert('❌ Erro na API do Firebase: ' + data.mensagem);
+          break;
+        case 'desconhecido':
+          alert('❌ Erro desconhecido ao salvar cliente: ' + data.mensagem);
+          break;
+        case 'servidor':
+        default:
+          alert('⚠️ Erro no servidor: ' + data.mensagem);
+      }
+    }
+
+  } catch (err) {
+    console.error('Falha na conexão ou erro desconhecido:', err);
+    alert('❌ Falha de conexão ou erro inesperado. Verifique o console.');
+  }
+}
+
 });
 </script>
+
 
 </body>
 </html>

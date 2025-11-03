@@ -303,6 +303,29 @@ def atualiza_dataframe():
 # ============================================================
 # 🚪 LOGOUT
 # ============================================================
+@app.route('/salvar_cliente', methods=['POST'])
+def salvar_cliente():
+    try:
+        cliente = request.json
+        if not cliente or 'doc_id' not in cliente:
+            return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
+
+        # Tentativa de salvar no Firestore
+        try:
+            db.collection('fluxo_pessoas').document(cliente['doc_id']).set(cliente, merge=True)
+            return jsonify({'status': 'ok'})
+        except firebase_admin.exceptions.FirebaseError as e:
+            print("Erro Firebase:", e)
+            return jsonify({'status': 'erro', 'tipo': 'firebase', 'mensagem': 'Erro na API do Firebase.'}), 500
+        except Exception as e:
+            print("Erro desconhecido ao salvar no Firebase:", e)
+            return jsonify({'status': 'erro', 'tipo': 'desconhecido', 'mensagem': 'Erro inesperado ao salvar cliente.'}), 500
+
+    except Exception as e:
+        print("Erro geral do servidor:", e)
+        return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': 'Erro inesperado no servidor.'}), 500
+
+
 
 @app.route('/logout')
 def logout():
