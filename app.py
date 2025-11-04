@@ -135,6 +135,24 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
     filtered_df.drop(columns=['banco_clean'], errors='ignore', inplace=True)
     return filtered_df
 
+def get_divulgadores():
+    """
+    Retorna uma lista com os nomes das pessoas da empresa
+    cadastradas na coleção 'divulgadores' do Firestore.
+    """
+    divulgadores_ref = db.collection("divulgadores")
+    docs = divulgadores_ref.stream()
+
+    divulgadores = []
+    for doc in docs:
+        data = doc.to_dict()
+        nome = data.get("nome")
+        if nome:
+            divulgadores.append(nome)
+
+    return divulgadores
+
+
 # ============================================================
 # 📊 DASHBOARD PRINCIPAL
 # ============================================================
@@ -185,6 +203,7 @@ def dashboard():
         exibidos=0
     )
 
+
 # ============================================================
 # 🔁 AJAX ATUALIZAÇÃO (carregar mais 10)
 # ============================================================
@@ -209,7 +228,10 @@ def atualiza_dataframe():
     orgao_filtro = data.get('orgao', None)
 
     filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
-    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
+    filtered_df['doc_id'] = filtered_df.apply(
+        lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(),
+        axis=1
+    )
     filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
 
     paginated_df = filtered_df.iloc[start:start + limit].copy()
@@ -217,6 +239,19 @@ def atualiza_dataframe():
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
     clientes_json = paginated_df.to_dict(orient="records")
+
+    # 🟩 ADICIONE ESSE TRECHO AQUI:
+    # Busca o divulgador salvo no Firestore (caso exista)
+    for cliente in clientes_json:
+        doc_id = cliente.get('doc_id')
+        if doc_id:
+            doc = db.collection('fluxo_pessoas').document(doc_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                if 'divulgador' in data:
+                    cliente['divulgador'] = data['divulgador']
+    # 🟩 FIM DO TRECHO
+
     next_start = start + limit
     if next_start >= len(filtered_df):
         next_start = 0
@@ -225,6 +260,34 @@ def atualiza_dataframe():
         "clientes": clientes_json,
         "next_start": next_start
     })
+
+
+@app.route('/cliente/<id>')
+def cliente(id):
+    cliente_data = db.collection("clientes").document(id).get().to_dict()
+    divulgadores = get_divulgadores()
+    return render_template('sheets_view.html', cliente=cliente_data, divulgadores=divulgadores)
+
+
+@app.route('/get_divulgadores', methods=['GET'])
+def get_divulgadores():
+    try:
+        docs = db.collection('usuarios').stream()
+        nomes = []
+        for doc in docs:
+            data = doc.to_dict()
+            nome = data.get('nome') or data.get('username')  # usa 'nome' ou 'username'
+            if nome:
+                nomes.append(nome)
+
+        nomes = sorted(set(nomes))  # remove duplicados e ordena
+        return jsonify(nomes)
+
+    except Exception as e:
+        print("Erro ao buscar divulgadores:", e)
+        return jsonify([]), 500
+
+
 
 # ============================================================
 # 📝 SALVAR CLIENTE (botão)
@@ -237,10 +300,23 @@ def salvar_cliente():
         if not cliente or 'doc_id' not in cliente:
             return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
 
-        # Tentativa de salvar no Firestore
+        # 🟩 Validação do novo telefone
+        novo_telefone = cliente.get('novo_telefone', '').strip()
+        if novo_telefone:
+            if not novo_telefone.isdigit() or len(novo_telefone) not in [10, 11]:
+                return jsonify({'status': 'erro', 'tipo': 'telefone', 'mensagem': 'Número de telefone inválido.'}), 400
+
+        # 🟩 Salvar no Firestore (inclui o novo_telefone se existir)
         try:
-            db.collection('fluxo_pessoas').document(cliente['doc_id']).set(cliente, merge=True)
+            doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
+            doc_ref.set(cliente, merge=True)
+
+            # Se o novo_telefone foi enviado, adiciona também como campo isolado
+            if novo_telefone:
+                doc_ref.update({'novo_telefone': novo_telefone})
+
             return jsonify({'status': 'ok'})
+
         except firebase_admin.exceptions.FirebaseError as e:
             print("Erro Firebase:", e)
             return jsonify({'status': 'erro', 'tipo': 'firebase', 'mensagem': 'Erro na API do Firebase.'}), 500
@@ -251,6 +327,7 @@ def salvar_cliente():
     except Exception as e:
         print("Erro geral do servidor:", e)
         return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': 'Erro inesperado no servidor.'}), 500
+
 
 # ============================================================
 # 🚪 LOGOUT

@@ -54,11 +54,24 @@ document.addEventListener("DOMContentLoaded", function() {
 
     const filtrosSalvos = { saldo: '', uf: '', orgao: '' };
     let currentStart = 0;
+    let divulgadores = [];
 
-    // Campos que você quer exibir em cada aba
+    // --- Buscar nomes dos divulgadores do servidor ---
+    async function carregarDivulgadores() {
+        try {
+            const res = await fetch('/get_divulgadores');
+            divulgadores = await res.json();
+        } catch (e) {
+            console.error("Erro ao buscar divulgadores:", e);
+            divulgadores = [];
+        }
+    }
+
+    // --- Inicializa divulgadores assim que a página carrega ---
+    carregarDivulgadores();
+
     const camposExibir = ["nome","cpf","banco","uf","saldo_devedor","parcela","prazo","telefone_movel_1","telefone_movel_2","telefone_movel_3"];
 
-    // Botão aplicar filtros
     btnAplicarFiltros.addEventListener('click', function() {
         filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
         filtrosSalvos.uf = document.getElementById('filter_uf').value.trim();
@@ -69,7 +82,6 @@ document.addEventListener("DOMContentLoaded", function() {
         clientesContainer.innerHTML = "";
     });
 
-    // --- Função principal para atualizar os clientes ---
     async function atualizaClientes() {
         btnAtualiza.disabled = true;
         btnAtualiza.innerText = "Carregando...";
@@ -90,33 +102,24 @@ document.addEventListener("DOMContentLoaded", function() {
             const data = await res.json();
             const clientes = data.clientes || [];
 
-            // Limpa antes de mostrar os próximos
             tabsContainer.innerHTML = "";
             clientesContainer.innerHTML = "";
 
             clientes.forEach((cliente, index) => {
                 const globalIndex = index;
 
-                // --- Criar botão de aba ---
                 const tab = document.createElement('button');
                 tab.className = 'tab-link';
                 tab.innerText = `Cliente ${currentStart + index + 1}`;
                 tab.onclick = () => openCliente(globalIndex);
                 tabsContainer.appendChild(tab);
 
-                // --- Criar div do conteúdo ---
                 const div = document.createElement('div');
                 div.className = 'tab-content';
                 div.id = `cliente_${globalIndex}`;
                 if(globalIndex !== 0) div.style.display = 'none';
 
-                // --- Adicionar botão de salvar ---
-                const btnSalvar = document.createElement('button');
-                btnSalvar.innerText = 'Salvar Cliente';
-                btnSalvar.style.float = 'right';
-                btnSalvar.style.marginBottom = '10px';
-                btnSalvar.onclick = () => salvarCliente(cliente);
-                // --- Criar dropdown de divulgador ---
+                // --- Dropdown de divulgador ---
                 const labelDiv = document.createElement('label');
                 labelDiv.innerText = 'Divulgador: ';
                 labelDiv.style.display = 'block';
@@ -127,8 +130,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 selectDiv.style.width = '100%';
                 selectDiv.style.marginBottom = '10px';
 
-                // Exemplo de opções, você pode ajustar os nomes
-                const divulgadores = ['João', 'Maria', 'Carlos', 'Ana'];
+                // Preenche com nomes vindos do servidor
                 divulgadores.forEach(nome => {
                     const option = document.createElement('option');
                     option.value = nome;
@@ -136,27 +138,86 @@ document.addEventListener("DOMContentLoaded", function() {
                     selectDiv.appendChild(option);
                 });
 
+                // Define valor atual se já tiver divulgado salvo
+                if (cliente.divulgador) {
+                    selectDiv.value = cliente.divulgador;
+                }
+
+                // Atualiza campo do cliente ao alterar
+                selectDiv.addEventListener('change', () => {
+                    cliente.divulgador = selectDiv.value;
+                });
+
                 labelDiv.appendChild(selectDiv);
                 div.appendChild(labelDiv);
 
+                // --- Botão salvar ---
+                const btnSalvar = document.createElement('button');
+                btnSalvar.innerText = 'Salvar Cliente';
+                btnSalvar.style.float = 'right';
+                btnSalvar.style.marginBottom = '10px';
+                btnSalvar.onclick = () => salvarCliente(cliente);
                 div.appendChild(btnSalvar);
 
-                // --- Exibir campos ---
                 camposExibir.forEach(key => {
-                    if(cliente[key] !== null && cliente[key] !== undefined){
-                        const p = document.createElement('p');
-                        p.innerHTML = `<b>${key}:</b> ${cliente[key]}`;
-                        div.appendChild(p);
-                    }
-                });
+              if (cliente[key] !== null && cliente[key] !== undefined) {
+                  const p = document.createElement('p');
+
+                  // Se o campo for de telefone, adiciona botão de copiar
+                  if (key.toLowerCase().includes('telefone')) {
+                      p.innerHTML = `
+                          <b>${key}:</b>
+                          <span class="telefone">${cliente[key]}</span>
+                          <button class="btn-copiar" onclick="copiarTelefone(this)">📋</button>
+                      `;
+                  } else {
+                      p.innerHTML = `<b>${key}:</b> ${cliente[key]}`;
+                  }
+
+                  div.appendChild(p);
+              }
+          });
+
+
+                        // --- Campo para novo número de telefone ---
+                        const labelNovoTel = document.createElement('label');
+                        labelNovoTel.innerText = 'Novo número de telefone:';
+                        labelNovoTel.style.display = 'block';
+                        labelNovoTel.style.marginTop = '10px';
+
+                        const inputNovoTel = document.createElement('input');
+                        inputNovoTel.type = 'text';
+                        inputNovoTel.placeholder = '(DDD) 9XXXX-XXXX';
+                        inputNovoTel.style.width = '100%';
+                        inputNovoTel.style.marginBottom = '8px';
+
+                        // Validação simples (somente números e mínimo de 10 dígitos)
+                        inputNovoTel.addEventListener('input', () => {
+                            inputNovoTel.value = inputNovoTel.value.replace(/\D/g, ''); // remove letras/símbolos
+                        });
+
+                        div.appendChild(labelNovoTel);
+                        div.appendChild(inputNovoTel);
+
+                        // Quando clicar em salvar, envia junto o novo número
+                        btnSalvar.onclick = () => {
+                            const novoNumero = inputNovoTel.value.trim();
+                            if (novoNumero && !/^\d{10,11}$/.test(novoNumero)) {
+                                alert('❌ Formato de número inválido! Use DDD + número, apenas dígitos.');
+                                return;
+                            }
+                            if (novoNumero) {
+                                cliente.novo_telefone = novoNumero; // adiciona campo novo
+                            }
+                            salvarCliente(cliente);
+                        };
+
 
                 clientesContainer.appendChild(div);
             });
 
             exibidosSpan.innerText = clientes.length;
-
             if(clientes.length > 0) openCliente(0);
-
             currentStart += clientes.length;
             if(currentStart >= data.total_count || clientes.length === 0) currentStart = 0;
 
@@ -168,60 +229,50 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    // --- Clique para atualizar clientes ---
     btnAtualiza.addEventListener('click', atualizaClientes);
 
-    // --- Alternar abas ---
     function openCliente(index) {
         const tabs = document.querySelectorAll('.tab-link');
         const contents = document.querySelectorAll('.tab-content');
-
         tabs.forEach((t,i) => t.classList.toggle('active', i === index));
         contents.forEach((c,i) => c.style.display = (i === index ? 'block' : 'none'));
     }
 
-    // --- Função de salvar cliente ---
     async function salvarCliente(cliente) {
-  try {
-    const res = await fetch('/salvar_cliente', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cliente)
-    });
+        try {
+            const res = await fetch('/salvar_cliente', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cliente)
+            });
 
-    if (!res.ok) {
-      throw new Error(`Erro HTTP ${res.status}`);
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('✅ Cliente salvo com sucesso!');
+            } else {
+                alert('⚠️ Erro ao salvar cliente: ' + (data.mensagem || 'desconhecido'));
+            }
+
+        } catch (err) {
+            console.error('Falha na conexão:', err);
+            alert('❌ Falha de conexão ou erro inesperado.');
+        }
     }
-
-    const data = await res.json();
-
-    if (data.status === 'ok') {
-      alert('✅ Cliente salvo com sucesso!');
-    } else {
-      switch(data.tipo) {
-        case 'dados':
-          alert('⚠️ Dados inválidos: ' + data.mensagem);
-          break;
-        case 'firebase':
-          alert('❌ Erro na API do Firebase: ' + data.mensagem);
-          break;
-        case 'desconhecido':
-          alert('❌ Erro desconhecido ao salvar cliente: ' + data.mensagem);
-          break;
-        case 'servidor':
-        default:
-          alert('⚠️ Erro no servidor: ' + data.mensagem);
-      }
-    }
-
-  } catch (err) {
-    console.error('Falha na conexão ou erro desconhecido:', err);
-    alert('❌ Falha de conexão ou erro inesperado. Verifique o console.');
-  }
-}
-
 });
 </script>
+
+<script>
+function copiarTelefone(botao) {
+  const telefone = botao.parentElement.querySelector('.telefone').textContent.trim();
+  navigator.clipboard.writeText(telefone)
+    .then(() => {
+      botao.textContent = '✅';
+      setTimeout(() => botao.textContent = '📋', 1000);
+    })
+    .catch(() => alert('❌ Não foi possível copiar o número.'));
+}
+</script>
+
 
 
 </body>
