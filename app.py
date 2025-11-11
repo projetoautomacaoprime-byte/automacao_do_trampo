@@ -121,19 +121,73 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
     filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in df.columns else ""
     filtered_df['idade'] = filtered_df.get('idade', 0)
 
+    # =======================
+    # FILTRO DE BANCOS
+    # =======================
     blocked_banks = [""]
     blocked_banks = [b.lower() for b in blocked_banks]
-
     filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
     filtered_df = filtered_df[filtered_df['idade'] <= 70]
 
+def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_filtro=None) -> pd.DataFrame:
+    saldo_min = float(saldo_filtro) if saldo_filtro else 25000
+    filtered_df = df[df["saldo_devedor_float"] >= saldo_min].copy()
+    filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower() if 'banco' in df.columns else ""
+    filtered_df['idade'] = filtered_df.get('idade', 0)
+
+    # =======================
+    # FILTRO DE BANCOS
+    # =======================
+    blocked_banks = [""]
+    blocked_banks = [b.lower() for b in blocked_banks]
+    filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
+    filtered_df = filtered_df[filtered_df['idade'] <= 70]
+
+       # =======================
+    # NOVO FILTRO DE ÓRGÃOS (MOSTRAR APENAS OS PERMITIDOS)
+    # =======================
+    allowed_orgaos = ["40803"]  # Códigos que devem aparecer
+
+    # Mapeamento código → nome e taxa
+    orgaos_info = {
+        "40803": {"nome": "Vinigay", "taxa": 1.50},
+        # exemplo:
+        # "50100": {"nome": "INSS", "taxa": 1.35},
+        # "30200": {"nome": "PREFEITURA", "taxa": 1.25},
+    }
+
+    if "orgao" in filtered_df.columns:
+        filtered_df["orgao_clean"] = filtered_df["orgao"].astype(str).str.strip().str.upper()
+
+        # Filtra apenas os órgãos permitidos
+        filtered_df = filtered_df[filtered_df["orgao_clean"].isin([o.upper() for o in allowed_orgaos])]
+
+        # Mapeia nome e taxa
+        filtered_df["orgao_nome"] = filtered_df["orgao_clean"].map(
+            {k.upper(): v["nome"] for k, v in orgaos_info.items()}
+        ).fillna("Desconhecido")
+
+        filtered_df["taxa_orgao"] = filtered_df["orgao_clean"].map(
+            {k.upper(): v["taxa"] for k, v in orgaos_info.items()}
+        ).fillna(0)
+    else:
+        filtered_df["orgao_nome"] = "Desconhecido"
+        filtered_df["taxa_orgao"] = 0
+        filtered_df.drop(columns=['banco_clean', 'orgao_clean'], errors='ignore', inplace=True)
+
+    filtered_df.drop(columns=['banco_clean', 'orgao_clean'], errors='ignore', inplace=True)
+
+    # =======================
+    # FILTROS EXISTENTES
+    # =======================
     if uf_filtro:
         filtered_df = filtered_df[filtered_df['uf'].str.upper() == uf_filtro.upper()]
     if orgao_filtro:
         filtered_df = filtered_df[filtered_df['orgao'].astype(str).str.upper() == orgao_filtro.upper()]
 
-    filtered_df.drop(columns=['banco_clean'], errors='ignore', inplace=True)
     return filtered_df
+
+
 
 def get_divulgadores():
     """

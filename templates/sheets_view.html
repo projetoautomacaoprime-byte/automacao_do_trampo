@@ -70,7 +70,21 @@ document.addEventListener("DOMContentLoaded", function() {
     // --- Inicializa divulgadores assim que a página carrega ---
     carregarDivulgadores();
 
-    const camposExibir = ["nome","cpf","banco","uf","saldo_devedor","parcela","prazo","telefone_movel_1","telefone_movel_2","telefone_movel_3"];
+   const camposExibir = [
+    "nome",
+    "cpf",
+    "banco",
+    "uf",
+    "orgao_nome",      // 👈 adiciona o nome do órgão
+    "taxa_orgao",      // 👈 adiciona a taxa do órgão
+    "saldo_devedor",
+    "parcela",
+    "prazo",
+    "telefone_movel_1",
+    "telefone_movel_2",
+    "telefone_movel_3"
+];
+
 
     btnAplicarFiltros.addEventListener('click', function() {
         filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
@@ -170,9 +184,16 @@ document.addEventListener("DOMContentLoaded", function() {
                           <span class="telefone">${cliente[key]}</span>
                           <button class="btn-copiar" onclick="copiarTelefone(this)">📋</button>
                       `;
-                  } else {
-                      p.innerHTML = `<b>${key}:</b> ${cliente[key]}`;
-                  }
+                                    } else {
+                        if (key === "taxa_orgao") {
+                            p.innerHTML = `<b>Taxa do Órgão:</b> ${cliente[key] ? cliente[key].toFixed(2) + "%" : "—"}`;
+                        } else if (key === "orgao_nome") {
+                            p.innerHTML = `<b>Órgão:</b> ${cliente[key] || "—"}`;
+                        } else {
+                            p.innerHTML = `<b>${key}:</b> ${cliente[key]}`;
+                        }
+                    }
+
 
                   div.appendChild(p);
               }
