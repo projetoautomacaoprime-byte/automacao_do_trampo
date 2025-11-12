@@ -315,6 +315,17 @@ def atualiza_dataframe():
         "next_start": next_start
     })
 
+# Rota da tela de consulta
+@app.route('/consulta', methods=['GET'])
+def consulta():
+    # exige login (mesma lógica que usa no /dashboard)
+    if not session.get('logged_in'):
+        return redirect(url_for('home'))
+
+    # podemos passar dados iniciais (ex: username) para o template
+    return render_template('consulta.html', username=session.get('username'))
+
+
 
 @app.route('/cliente/<id>')
 def cliente(id):
