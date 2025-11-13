@@ -1,49 +1,173 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="utf-8" />
-    <title>Consulta — Fluxo Pessoas</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        /* estilos mínimos para visualização rápida */
-        .container { max-width: 1000px; margin: 30px auto; padding: 16px; }
-        .search-row { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
-        .search-row input { flex:1; padding:8px 10px; font-size:16px; }
-        .search-row button { padding:8px 12px; font-size:16px; cursor:pointer; }
-        .result-list { margin-top:16px; }
-        .card { padding:10px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; }
-        .muted { color:#666; font-size:13px; }
-    </style>
+  <meta charset="utf-8" />
+  <title>Consulta — Fluxo Pessoas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #fafafa; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .search-row { display: flex; gap: 8px; margin-bottom: 15px; }
+    .search-row input { flex: 1; padding: 8px; font-size: 16px; }
+    .search-row button { padding: 8px 14px; cursor: pointer; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    .card p { margin: 4px 0; }
+    .btn-load { background: #007bff; color: white; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+    .btn-load:disabled { background: #ccc; cursor: default; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Consulta de Clientes</h1>
-        <p class="muted">Usuário: {{ username or '—' }}</p>
+<div class="container">
+  <h2>🔍 Consulta de Pessoas</h2>
 
-        <div class="search-row">
-            <input id="search-input" type="text" placeholder="Pesquisar por nome, CPF, doc_id..." />
-            <button id="search-btn" type="button">Pesquisar</button>
-        </div>
+<div class="search-row">
+  <input type="text" id="busca_geral" placeholder="Pesquisar por nome, CPF, telefone, e-mail, órgão, banco...">
+  <select id="filtro_divulgador">
+    <option value="">Todos os divulgadores</option>
+    <option value="{{ username }}">Meus divulgados</option>
+  </select>
+  <button id="btnPesquisar">Buscar</button>
+</div>
 
-        <div id="results" class="result-list">
-            <!-- resultados aparecerão aqui -->
-            <p class="muted">Nenhuma busca realizada ainda.</p>
-        </div>
-    </div>
+  <div id="clientes-container"></div>
+  <div style="text-align:center;">
+    <button id="btnCarregarMais" class="btn-load" style="display:none;">Carregar mais</button>
+  </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const inputBusca = document.getElementById('busca_geral');
+  const btnPesquisar = document.getElementById('btnPesquisar');
+  const btnCarregarMais = document.getElementById('btnCarregarMais');
+  const clientesContainer = document.getElementById('clientes-container');
 
-    <!-- Placeholder JS: futuro AJAX para buscar no Firestore via /consulta (POST) ou endpoint dedicado -->
-    <script>
-        // Por enquanto só previne reload e mostra texto (implementaremos busca depois)
-        document.getElementById('search-btn').addEventListener('click', function() {
-            const termo = document.getElementById('search-input').value.trim();
-            const results = document.getElementById('results');
-            if (!termo) {
-                results.innerHTML = '<p class="muted">Digite um termo para pesquisar (nome, CPF ou doc_id).</p>';
-                return;
-            }
-            results.innerHTML = '<p class="muted">Buscando — ainda não implementado. Em breve eu crio o endpoint que retorna resultados.</p>';
-        });
-    </script>
+  let termoAtual = '';
+  let lastDocId = null;
+  let carregando = false;
+
+  async function buscarFluxo(reset = false) {
+    if (carregando) return;
+    carregando = true;
+
+    if (reset) {
+      clientesContainer.innerHTML = ''; // 🔄 limpa resultados antigos
+      lastDocId = null;
+    }
+
+    const payload = {
+      q: termoAtual,
+      last_id: lastDocId,
+      limit: 20
+    };
+
+    const res = await fetch('/buscar_fluxo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    const clientes = data.clientes || [];
+
+    if (clientes.length === 0 && reset) {
+      clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
+      btnCarregarMais.style.display = 'none';
+    } else {
+      // ✅ renderiza corretamente os resultados
+      clientes.forEach(c => {
+        const div = document.createElement('div');
+        div.classList.add('card');
+        div.innerHTML = `
+          <p><strong>Nome:</strong> ${c.nome || '-'}</p>
+          <p><strong>CPF:</strong> ${c.cpf || '-'}</p>
+          <p><strong>Órgão:</strong> ${c.orgao_nome || '-'}</p>
+          <p><strong>UF:</strong> ${c.uf || '-'}</p>
+          <p><strong>Telefone:</strong> ${c.telefone || '-'}</p>
+          <p><strong>Idade:</strong> ${c.idade || '-'}</p>
+          <p><strong>Divulgador:</strong> ${c.divulgador || '-'}</p>
+        `;
+        clientesContainer.appendChild(div);
+      });
+
+      lastDocId = clientes[clientes.length - 1]?.doc_id || null;
+      btnCarregarMais.style.display = data.has_more ? 'inline-block' : 'none';
+    }
+
+    carregando = false;
+  }
+
+  btnPesquisar.addEventListener('click', () => {
+    termoAtual = inputBusca.value.trim();
+    buscarFluxo(true);
+  });
+
+  inputBusca.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      termoAtual = inputBusca.value.trim();
+      buscarFluxo(true);
+    }
+  });
+
+  btnCarregarMais.addEventListener('click', () => {
+    buscarFluxo(false);
+  });
+});
+
+const filtroDivulgador = document.getElementById('filtro_divulgador');
+
+async function buscarFluxo(reset = false) {
+  if (carregando) return;
+  carregando = true;
+
+  if (reset) {
+    clientesContainer.innerHTML = '';
+    lastDocId = null;
+  }
+
+  const payload = {
+    q: termoAtual,
+    last_id: lastDocId,
+    limit: 20,
+    divulgador: filtroDivulgador.value || null // 👈 novo campo
+  };
+
+  const res = await fetch('/buscar_fluxo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  const clientes = data.clientes || [];
+  
+  if (clientes.length === 0 && reset) {
+    clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
+    btnCarregarMais.style.display = 'none';
+  } else {
+    clientes.forEach(c => {
+      const div = document.createElement('div');
+      div.classList.add('card');
+      div.innerHTML = `
+        <p><strong>Nome:</strong> ${c.nome || '-'}</p>
+        <p><strong>CPF:</strong> ${c.cpf || '-'}</p>
+        <p><strong>Órgão:</strong> ${c.orgao_nome || '-'}</p>
+        <p><strong>UF:</strong> ${c.uf || '-'}</p>
+        <p><strong>Telefone:</strong> ${c.telefone || '-'}</p>
+        <p><strong>Idade:</strong> ${c.idade || '-'}</p>
+        <p><strong>Divulgador:</strong> ${c.divulgador || '-'}</p>
+      `;
+      clientesContainer.appendChild(div);
+    });
+
+    lastDocId = clientes[clientes.length - 1]?.doc_id || null;
+    btnCarregarMais.style.display = data.has_more ? 'inline-block' : 'none';
+  }
+
+  carregando = false;
+}
+
+</script>
+
 </body>
 </html>

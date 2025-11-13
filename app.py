@@ -326,6 +326,64 @@ def consulta():
     return render_template('consulta.html', username=session.get('username'))
 
 
+# Rota para buscar registros salvos no Firestore (fluxo_pessoas)
+@app.route('/buscar_fluxo', methods=['POST'])
+def buscar_fluxo():
+    data = request.get_json()
+    termo = data.get('q', '').strip().lower()
+    limit = data.get('limit', 20)
+    divulgador_filtro = data.get('divulgador')  # 🆕 veio do front-end (filtro opcional)
+
+    colecao = db.collection('fluxo_pessoas')
+    query = colecao.order_by('nome')
+
+    resultados = []
+
+    docs = query.stream()
+    for doc in docs:
+        d = doc.to_dict()
+        if not d:
+            continue
+
+        # 🧩 se tiver filtro de divulgador, pula quem não for o mesmo
+        if divulgador_filtro and d.get('divulgador') != divulgador_filtro:
+            continue
+
+        # 🔎 filtro de texto geral (nome, cpf, telefone, etc.)
+        if termo and not any(
+            termo in str(d.get(field, '')).lower()
+            for field in ['nome', 'cpf', 'telefone_movel_1', 'telefone_movel_2', 'telefone_movel_3',
+                          'email_1', 'email_2', 'email_3', 'orgao_nome', 'banco']
+        ):
+            continue
+
+        d['doc_id'] = doc.id
+
+        # 🔧 garante campos padrão
+        d['orgao_nome'] = d.get('orgao_nome', 'Desconhecido')
+        d['uf'] = d.get('uf', '-')
+        d['telefone'] = d.get('telefone_movel_1') or d.get('telefone_movel_2') or d.get('telefone_movel_3') or '-'
+        d['idade'] = d.get('idade', '-')
+        d['divulgador'] = d.get('divulgador', '-')
+
+        resultado_limpo = {
+            'nome': d.get('nome', ''),
+            'cpf': d.get('cpf', ''),
+            'orgao_nome': d.get('orgao_nome', ''),
+            'uf': d.get('uf', ''),
+            'telefone': d.get('telefone', ''),
+            'idade': d.get('idade', ''),
+            'divulgador': d.get('divulgador', '')
+        }
+
+        resultados.append(resultado_limpo)
+
+    clientes = resultados[:limit]
+    mais = len(resultados) > limit
+
+    return jsonify({'clientes': clientes, 'has_more': mais})
+
+
 
 @app.route('/cliente/<id>')
 def cliente(id):
@@ -364,6 +422,13 @@ def salvar_cliente():
         cliente = request.json
         if not cliente or 'doc_id' not in cliente:
             return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
+
+        # ✅ Injeta o divulgador logado automaticamente
+        if 'username' in session:
+            cliente['divulgador'] = session['username']
+        else:
+            cliente['divulgador'] = 'Desconhecido'
+
 
         # 🟩 Validação do novo telefone
         novo_telefone = cliente.get('novo_telefone', '').strip()
