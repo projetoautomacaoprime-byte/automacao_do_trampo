@@ -21,26 +21,28 @@
 <div class="container">
   <h2>🔍 Consulta de Pessoas</h2>
 
-<div class="search-row">
-  <input type="text" id="busca_geral" placeholder="Pesquisar por nome, CPF, telefone, e-mail, órgão, banco...">
-  <select id="filtro_divulgador">
-    <option value="">Todos os divulgadores</option>
-    <option value="{{ username }}">Meus divulgados</option>
-  </select>
-  <button id="btnPesquisar">Buscar</button>
-</div>
+  <div class="search-row">
+    <input type="text" id="busca_geral" placeholder="Pesquisar por nome, CPF, telefone, e-mail, órgão, banco...">
+    <select id="filtro_divulgador">
+      <option value="">Todos os divulgadores</option>
+      <option value="{{ username }}">Meus divulgados</option>
+    </select>
+    <button id="btnPesquisar">Buscar</button>
+  </div>
 
   <div id="clientes-container"></div>
   <div style="text-align:center;">
     <button id="btnCarregarMais" class="btn-load" style="display:none;">Carregar mais</button>
   </div>
 </div>
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const inputBusca = document.getElementById('busca_geral');
   const btnPesquisar = document.getElementById('btnPesquisar');
   const btnCarregarMais = document.getElementById('btnCarregarMais');
   const clientesContainer = document.getElementById('clientes-container');
+  const filtroDivulgador = document.getElementById('filtro_divulgador');
 
   let termoAtual = '';
   let lastDocId = null;
@@ -51,14 +53,15 @@ document.addEventListener('DOMContentLoaded', () => {
     carregando = true;
 
     if (reset) {
-      clientesContainer.innerHTML = ''; // 🔄 limpa resultados antigos
+      clientesContainer.innerHTML = '';
       lastDocId = null;
     }
 
     const payload = {
       q: termoAtual,
       last_id: lastDocId,
-      limit: 20
+      limit: 20,
+      divulgador: filtroDivulgador.value || null
     };
 
     const res = await fetch('/buscar_fluxo', {
@@ -74,18 +77,21 @@ document.addEventListener('DOMContentLoaded', () => {
       clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
       btnCarregarMais.style.display = 'none';
     } else {
-      // ✅ renderiza corretamente os resultados
       clientes.forEach(c => {
         const div = document.createElement('div');
         div.classList.add('card');
         div.innerHTML = `
           <p><strong>Nome:</strong> ${c.nome || '-'}</p>
           <p><strong>CPF:</strong> ${c.cpf || '-'}</p>
+          <p><strong>Idade:</strong> ${c.idade || '-'}</p>
           <p><strong>Órgão:</strong> ${c.orgao_nome || '-'}</p>
           <p><strong>UF:</strong> ${c.uf || '-'}</p>
-          <p><strong>Telefone:</strong> ${c.telefone || '-'}</p>
-          <p><strong>Idade:</strong> ${c.idade || '-'}</p>
+          <p><strong>Banco:</strong> ${c.banco || '-'}</p>
+          <p><strong>Telefone 1:</strong> ${c.telefone_movel_1 || '-'}</p>
+          <p><strong>Telefone 2:</strong> ${c.telefone_movel_2 || '-'}</p>
+          <p><strong>Telefone 3:</strong> ${c.telefone_movel_3 || '-'}</p>
           <p><strong>Divulgador:</strong> ${c.divulgador || '-'}</p>
+          <p><strong>Data da Divulgação:</strong> ${c.data_divulgacao || '-'}</p>
         `;
         clientesContainer.appendChild(div);
       });
@@ -113,61 +119,6 @@ document.addEventListener('DOMContentLoaded', () => {
     buscarFluxo(false);
   });
 });
-
-const filtroDivulgador = document.getElementById('filtro_divulgador');
-
-async function buscarFluxo(reset = false) {
-  if (carregando) return;
-  carregando = true;
-
-  if (reset) {
-    clientesContainer.innerHTML = '';
-    lastDocId = null;
-  }
-
-  const payload = {
-    q: termoAtual,
-    last_id: lastDocId,
-    limit: 20,
-    divulgador: filtroDivulgador.value || null // 👈 novo campo
-  };
-
-  const res = await fetch('/buscar_fluxo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  const clientes = data.clientes || [];
-  
-  if (clientes.length === 0 && reset) {
-    clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
-    btnCarregarMais.style.display = 'none';
-  } else {
-    clientes.forEach(c => {
-      const div = document.createElement('div');
-      div.classList.add('card');
-      div.innerHTML = `
-        <p><strong>Nome:</strong> ${c.nome || '-'}</p>
-        <p><strong>CPF:</strong> ${c.cpf || '-'}</p>
-        <p><strong>Órgão:</strong> ${c.orgao_nome || '-'}</p>
-        <p><strong>UF:</strong> ${c.uf || '-'}</p>
-        <p><strong>Telefone:</strong> ${c.telefone || '-'}</p>
-        <p><strong>Idade:</strong> ${c.idade || '-'}</p>
-        <p><strong>Divulgador:</strong> ${c.divulgador || '-'}</p>
-      `;
-      clientesContainer.appendChild(div);
-    });
-
-    lastDocId = clientes[clientes.length - 1]?.doc_id || null;
-    btnCarregarMais.style.display = data.has_more ? 'inline-block' : 'none';
-  }
-
-  carregando = false;
-}
-
 </script>
-
 </body>
 </html>

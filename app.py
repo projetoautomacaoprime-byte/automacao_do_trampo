@@ -367,14 +367,19 @@ def buscar_fluxo():
         d['divulgador'] = d.get('divulgador', '-')
 
         resultado_limpo = {
-            'nome': d.get('nome', ''),
-            'cpf': d.get('cpf', ''),
-            'orgao_nome': d.get('orgao_nome', ''),
-            'uf': d.get('uf', ''),
-            'telefone': d.get('telefone', ''),
-            'idade': d.get('idade', ''),
-            'divulgador': d.get('divulgador', '')
-        }
+    'nome': d.get('nome', ''),
+    'cpf': d.get('cpf', ''),
+    'idade': d.get('idade', ''),
+    'orgao_nome': d.get('orgao_nome', ''),
+    'uf': d.get('uf', ''),
+    'banco': d.get('banco', '-'),
+    'telefone_movel_1': d.get('telefone_movel_1', '-'),
+    'telefone_movel_2': d.get('telefone_movel_2', '-'),
+    'telefone_movel_3': d.get('telefone_movel_3', '-'),
+    'divulgador': d.get('divulgador', ''),
+    'data_divulgacao': d.get('data_divulgacao', '-')  # <-- adiciona aqui
+}
+
 
         resultados.append(resultado_limpo)
 
@@ -423,25 +428,31 @@ def salvar_cliente():
         if not cliente or 'doc_id' not in cliente:
             return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
 
-        # ✅ Injeta o divulgador logado automaticamente
+        # Injeta o divulgador logado automaticamente
         if 'username' in session:
             cliente['divulgador'] = session['username']
         else:
             cliente['divulgador'] = 'Desconhecido'
 
+        from datetime import datetime
 
-        # 🟩 Validação do novo telefone
+# ✅ injeta data da divulgação se não existir
+        if 'data_divulgacao' not in cliente or not cliente['data_divulgacao']:
+             cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+
+        # Validação do novo telefone
         novo_telefone = cliente.get('novo_telefone', '').strip()
         if novo_telefone:
             if not novo_telefone.isdigit() or len(novo_telefone) not in [10, 11]:
                 return jsonify({'status': 'erro', 'tipo': 'telefone', 'mensagem': 'Número de telefone inválido.'}), 400
 
-        # 🟩 Salvar no Firestore (inclui o novo_telefone se existir)
+        # Salva no Firestore
         try:
             doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
             doc_ref.set(cliente, merge=True)
 
-            # Se o novo_telefone foi enviado, adiciona também como campo isolado
+            # Se houver novo telefone, salva isoladamente
             if novo_telefone:
                 doc_ref.update({'novo_telefone': novo_telefone})
 
@@ -457,6 +468,7 @@ def salvar_cliente():
     except Exception as e:
         print("Erro geral do servidor:", e)
         return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': 'Erro inesperado no servidor.'}), 500
+
 
 
 # ============================================================
