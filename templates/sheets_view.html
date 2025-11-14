@@ -133,37 +133,6 @@ document.addEventListener("DOMContentLoaded", function() {
                 div.id = `cliente_${globalIndex}`;
                 if(globalIndex !== 0) div.style.display = 'none';
 
-                // --- Dropdown de divulgador ---
-                const labelDiv = document.createElement('label');
-                labelDiv.innerText = 'Divulgador: ';
-                labelDiv.style.display = 'block';
-                labelDiv.style.marginBottom = '5px';
-
-                const selectDiv = document.createElement('select');
-                selectDiv.name = 'divulgador';
-                selectDiv.style.width = '100%';
-                selectDiv.style.marginBottom = '10px';
-
-                // Preenche com nomes vindos do servidor
-                divulgadores.forEach(nome => {
-                    const option = document.createElement('option');
-                    option.value = nome;
-                    option.innerText = nome;
-                    selectDiv.appendChild(option);
-                });
-
-                // Define valor atual se já tiver divulgado salvo
-                if (cliente.divulgador) {
-                    selectDiv.value = cliente.divulgador;
-                }
-
-                // Atualiza campo do cliente ao alterar
-                selectDiv.addEventListener('change', () => {
-                    cliente.divulgador = selectDiv.value;
-                });
-
-                labelDiv.appendChild(selectDiv);
-                div.appendChild(labelDiv);
 
                 // --- Botão salvar ---
                 const btnSalvar = document.createElement('button');
