@@ -101,3 +101,13 @@ button:hover
     background-color: #3B5C6A;   /* Azul mais claro no hover */
     transition: 0.3s;            /* Transição suave de cor */
 }
+.btn-editar, .btn-salvar {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.btn-editar { background: #007bff; color: #fff; }
+.btn-salvar { background: #28a745; color: #fff; }

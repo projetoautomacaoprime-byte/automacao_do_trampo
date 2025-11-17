@@ -367,6 +367,7 @@ def buscar_fluxo():
         d['divulgador'] = d.get('divulgador', '-')
 
         resultado_limpo = {
+    'doc_id': d.get('doc_id', ''),
     'nome': d.get('nome', ''),
     'cpf': d.get('cpf', ''),
     'idade': d.get('idade', ''),
@@ -416,6 +417,19 @@ def get_divulgadores():
         return jsonify([]), 500
 
 
+@app.route("/atualizar_fluxo/<doc_id>", methods=["POST"])
+def atualizar_fluxo(doc_id):
+    try:
+        dados = request.get_json()
+        db = firestore.client()
+
+        db.collection("fluxo_pessoas").document(doc_id).update(dados)
+
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print("Erro ao atualizar:", str(e))
+        return jsonify({"status": "erro", "msg": str(e)})
+
 
 # ============================================================
 # 📝 SALVAR CLIENTE (botão)
@@ -428,46 +442,31 @@ def salvar_cliente():
         if not cliente or 'doc_id' not in cliente:
             return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
 
-        # Injeta o divulgador logado automaticamente
-        if 'username' in session:
-            cliente['divulgador'] = session['username']
-        else:
-            cliente['divulgador'] = 'Desconhecido'
+        # Injeta o divulgador logado
+        cliente['divulgador'] = session.get('username', 'Desconhecido')
 
-        from datetime import datetime
+        # injeta data da divulgação se não existir
+        if not cliente.get('data_divulgacao'):
+            cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-# ✅ injeta data da divulgação se não existir
-        if 'data_divulgacao' not in cliente or not cliente['data_divulgacao']:
-             cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        # define a referência DO DOCUMENTO (precisa vir ANTES DE USAR)
+        doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
 
-
-        # Validação do novo telefone
+        # pega o novo telefone
         novo_telefone = cliente.get('novo_telefone', '').strip()
+
+        # salva o cliente inteiro
+        doc_ref.set(cliente, merge=True)
+
+        # se veio novo telefone, salva separado também
         if novo_telefone:
-            if not novo_telefone.isdigit() or len(novo_telefone) not in [10, 11]:
-                return jsonify({'status': 'erro', 'tipo': 'telefone', 'mensagem': 'Número de telefone inválido.'}), 400
+            doc_ref.update({'novo_telefone': novo_telefone})
 
-        # Salva no Firestore
-        try:
-            doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
-            doc_ref.set(cliente, merge=True)
-
-            # Se houver novo telefone, salva isoladamente
-            if novo_telefone:
-                doc_ref.update({'novo_telefone': novo_telefone})
-
-            return jsonify({'status': 'ok'})
-
-        except firebase_admin.exceptions.FirebaseError as e:
-            print("Erro Firebase:", e)
-            return jsonify({'status': 'erro', 'tipo': 'firebase', 'mensagem': 'Erro na API do Firebase.'}), 500
-        except Exception as e:
-            print("Erro desconhecido ao salvar no Firebase:", e)
-            return jsonify({'status': 'erro', 'tipo': 'desconhecido', 'mensagem': 'Erro inesperado ao salvar cliente.'}), 500
+        return jsonify({'status': 'ok'})
 
     except Exception as e:
         print("Erro geral do servidor:", e)
-        return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': 'Erro inesperado no servidor.'}), 500
+        return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': str(e)}), 500
 
 
 

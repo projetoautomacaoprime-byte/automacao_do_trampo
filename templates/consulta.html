@@ -37,6 +37,58 @@
 </div>
 
 <script>
+// ---------------------------------------------------------------------------
+// 🔥 FUNÇÃO GLOBAL DE FETCH COM ERROS IMEDIATOS
+// ---------------------------------------------------------------------------
+async function safeFetch(url, options = {}) {
+  if (!navigator.onLine) {
+    throw new Error("offline");
+  }
+
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (e) {
+    throw new Error("servidor_off");
+  }
+
+  return response;
+}
+
+// ---------------------------------------------------------------------------
+// 🔥 RENDERIZA UM CARD COMPLETO
+// ---------------------------------------------------------------------------
+function renderizarCard(c) {
+  const div = document.createElement('div');
+  div.classList.add('card');
+  div.id = "card-" + c.doc_id;
+  div.setAttribute("data-id", c.doc_id);
+
+  div.innerHTML = `
+    <p><strong>Nome:</strong> <span data-field="nome">${c.nome || '-'}</span></p>
+    <p><strong>CPF:</strong> <span data-field="cpf">${c.cpf || '-'}</span></p>
+    <p><strong>Idade:</strong> <span data-field="idade">${c.idade || '-'}</span></p>
+    <p><strong>Órgão:</strong> <span data-field="orgao_nome">${c.orgao_nome || '-'}</span></p>
+    <p><strong>UF:</strong> <span data-field="uf">${c.uf || '-'}</span></p>
+    <p><strong>Banco:</strong> <span data-field="banco">${c.banco || '-'}</span></p>
+    <p><strong>Telefone 1:</strong> <span data-field="telefone_movel_1">${c.telefone_movel_1 || '-'}</span></p>
+    <p><strong>Telefone 2:</strong> <span data-field="telefone_movel_2">${c.telefone_movel_2 || '-'}</span></p>
+    <p><strong>Telefone 3:</strong> <span data-field="telefone_movel_3">${c.telefone_movel_3 || '-'}</span></p>
+    <p><strong>Divulgador:</strong> <span data-field="divulgador">${c.divulgador || '-'}</span></p>
+    <p><strong>Data da Divulgação:</strong> <span data-field="data_divulgacao">${c.data_divulgacao || '-'}</span></p>
+
+    <div style="margin-top:10px;">
+        <button class="btn-editar" onclick="editarCliente('${c.doc_id}', this)">Editar</button>
+        <button class="btn-salvar" onclick="salvarCliente('${c.doc_id}', this)" style="display:none;">Salvar</button>
+    </div>
+  `;
+
+  return div;
+}
+
+// ---------------------------------------------------------------------------
+// 🔥 BUSCAR FLUXO
+// ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   const inputBusca = document.getElementById('busca_geral');
   const btnPesquisar = document.getElementById('btnPesquisar');
@@ -64,45 +116,41 @@ document.addEventListener('DOMContentLoaded', () => {
       divulgador: filtroDivulgador.value || null
     };
 
-    const res = await fetch('/buscar_fluxo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    const clientes = data.clientes || [];
-
-    if (clientes.length === 0 && reset) {
-      clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
-      btnCarregarMais.style.display = 'none';
-    } else {
-      clientes.forEach(c => {
-        const div = document.createElement('div');
-        div.classList.add('card');
-        div.innerHTML = `
-          <p><strong>Nome:</strong> ${c.nome || '-'}</p>
-          <p><strong>CPF:</strong> ${c.cpf || '-'}</p>
-          <p><strong>Idade:</strong> ${c.idade || '-'}</p>
-          <p><strong>Órgão:</strong> ${c.orgao_nome || '-'}</p>
-          <p><strong>UF:</strong> ${c.uf || '-'}</p>
-          <p><strong>Banco:</strong> ${c.banco || '-'}</p>
-          <p><strong>Telefone 1:</strong> ${c.telefone_movel_1 || '-'}</p>
-          <p><strong>Telefone 2:</strong> ${c.telefone_movel_2 || '-'}</p>
-          <p><strong>Telefone 3:</strong> ${c.telefone_movel_3 || '-'}</p>
-          <p><strong>Divulgador:</strong> ${c.divulgador || '-'}</p>
-          <p><strong>Data da Divulgação:</strong> ${c.data_divulgacao || '-'}</p>
-        `;
-        clientesContainer.appendChild(div);
+    try {
+      const res = await safeFetch('/buscar_fluxo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
 
-      lastDocId = clientes[clientes.length - 1]?.doc_id || null;
-      btnCarregarMais.style.display = data.has_more ? 'inline-block' : 'none';
+      const data = await res.json();
+      const clientes = data.clientes || [];
+
+      if (clientes.length === 0 && reset) {
+        clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
+        btnCarregarMais.style.display = 'none';
+      } else {
+        clientes.forEach(c => {
+          clientesContainer.appendChild(renderizarCard(c));
+        });
+
+        lastDocId = clientes[clientes.length - 1]?.doc_id || null;
+
+        btnCarregarMais.style.display = clientes.length < 20 ? 'none' : 'inline-block';
+      }
+
+    } catch (err) {
+      if (err.message === "offline") {
+        alert("❌ Sem internet! Conecte-se e tente novamente.");
+      } else {
+        alert("❌ Erro ao buscar dados! Servidor indisponível.");
+      }
     }
 
     carregando = false;
   }
 
+  // EVENTOS
   btnPesquisar.addEventListener('click', () => {
     termoAtual = inputBusca.value.trim();
     buscarFluxo(true);
@@ -119,6 +167,72 @@ document.addEventListener('DOMContentLoaded', () => {
     buscarFluxo(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 🔥 EDITAR CLIENTE
+// ---------------------------------------------------------------------------
+function editarCliente(id, btnEditar) {
+  const card = document.getElementById("card-" + id);
+  const spans = card.querySelectorAll("span[data-field]");
+
+  spans.forEach(span => {
+    const valor = span.innerText === "-" ? "" : span.innerText;
+    span.outerHTML = `<input data-field="${span.dataset.field}" value="${valor}">`;
+  });
+
+  btnEditar.style.display = "none";
+  btnEditar.nextElementSibling.style.display = "inline-block";
+}
+
+// ---------------------------------------------------------------------------
+// 🔥 SALVAR CLIENTE COM ERROS IMEDIATOS
+// ---------------------------------------------------------------------------
+async function salvarCliente(id, btnSalvar) {
+  const card = document.getElementById("card-" + id);
+  const realId = id || card.getAttribute("data-id");
+
+  if (!realId) {
+    alert("Erro: ID não encontrado!");
+    return;
+  }
+
+  const inputs = card.querySelectorAll("input[data-field]");
+  let body = {};
+  inputs.forEach(inp => body[inp.dataset.field] = inp.value.trim());
+
+  try {
+    const response = await safeFetch(`/atualizar_fluxo/${realId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || data.status !== "ok") {
+      throw new Error("erro_salvar");
+    }
+
+    // Transformar inputs em spans
+    inputs.forEach(inp => {
+      inp.outerHTML = `<span data-field="${inp.dataset.field}">${inp.value || '-'}</span>`;
+    });
+
+    btnSalvar.style.display = "none";
+    btnSalvar.previousElementSibling.style.display = "inline-block";
+
+    alert("Salvo com sucesso!");
+
+  } catch (err) {
+    if (err.message === "offline") {
+      alert("❌ Sem internet! Não foi possível salvar.");
+    } else if (err.message === "servidor_off") {
+      alert("❌ Servidor indisponível! Tente novamente mais tarde.");
+    } else {
+      alert("❌ Erro ao salvar! Tente novamente.");
+    }
+  }
+}
 </script>
 </body>
 </html>
