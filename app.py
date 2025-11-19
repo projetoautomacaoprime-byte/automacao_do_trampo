@@ -219,6 +219,17 @@ def dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('home'))
 
+    # 🔥 Ajuste NECESSÁRIO da Task 2 — pegar planilha por usuário
+    username = session.get("username")
+    config = get_user_sheet_config(username)
+
+    if config:
+        SHEET_URL_USER = config.get('sheet_url')
+        SHEET_NAME_USER = config.get('sheet_name')
+    else:
+        SHEET_URL_USER = None
+        SHEET_NAME_USER = None
+
     start = request.args.get('start', 0)
     try:
         start = int(start)
@@ -226,7 +237,9 @@ def dashboard():
         start = 0
     limit = 10
 
-    df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
+    # 🔥 Aqui troca SOMENTE o necessário
+    df = read_sheet_to_dataframe(SHEET_URL_USER, SHEET_NAME_USER)
+
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
     for col in ["parcela", "prazo", "idade"]:
         if col in df.columns:
@@ -239,49 +252,13 @@ def dashboard():
     uf_filtro = request.args.get('uf', None)
     orgao_filtro = request.args.get('orgao', None)
 
-    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
-    filtered_df['doc_id'] = filtered_df.apply(lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(), axis=1)
-    filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
-
-    paginated_df = filtered_df.iloc[start:start + limit].copy()
-    paginated_df["parcela"] = paginated_df["parcela_exibir"]
-    paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
-
-    table_data = paginated_df.to_dict(orient="records")
-
-    return render_template(
-        'sheets_view.html',
-        table_data=[],  # começa vazio
-        start=0,
-        username=session.get('username'),
-        exibidos=0
+    filtered_df = aplicar_filtros(
+        df,
+        uf_filtro=uf_filtro,
+        orgao_filtro=orgao_filtro,
+        saldo_filtro=saldo_filtro
     )
 
-
-# ============================================================
-# 🔁 AJAX ATUALIZAÇÃO (carregar mais 10)
-# ============================================================
-
-@app.route('/atualiza_dataframe', methods=['POST'])
-def atualiza_dataframe():
-    data = request.get_json()
-    start = int(data.get('start', 0))
-    limit = int(data.get('limit', 10))
-
-    df = read_sheet_to_dataframe(SHEET_URL, SHEET_NAME)
-    df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-    for col in ["parcela", "prazo", "idade"]:
-        if col in df.columns:
-            df[col] = df[col].apply(parse_brl)
-
-    df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
-    df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
-
-    saldo_filtro = data.get('saldo', None)
-    uf_filtro = data.get('uf', None)
-    orgao_filtro = data.get('orgao', None)
-
-    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
     filtered_df['doc_id'] = filtered_df.apply(
         lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(),
         axis=1
@@ -292,28 +269,108 @@ def atualiza_dataframe():
     paginated_df["parcela"] = paginated_df["parcela_exibir"]
     paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
-    clientes_json = paginated_df.to_dict(orient="records")
+    table_data = paginated_df.to_dict(orient="records")
 
-    # 🟩 ADICIONE ESSE TRECHO AQUI:
-    # Busca o divulgador salvo no Firestore (caso exista)
-    for cliente in clientes_json:
-        doc_id = cliente.get('doc_id')
-        if doc_id:
-            doc = db.collection('fluxo_pessoas').document(doc_id).get()
-            if doc.exists:
-                data = doc.to_dict()
-                if 'divulgador' in data:
-                    cliente['divulgador'] = data['divulgador']
-    # 🟩 FIM DO TRECHO
+    return render_template(
+    'sheets_view.html',
+    table_data=table_data,
+    start=start,
+    username=session.get('username'),
+    exibidos=len(table_data)
+)
 
-    next_start = start + limit
-    if next_start >= len(filtered_df):
-        next_start = 0
 
-    return jsonify({
-        "clientes": clientes_json,
-        "next_start": next_start
-    })
+
+
+# ============================================================
+# 🔁 AJAX ATUALIZAÇÃO (carregar mais 10)
+# ============================================================
+
+@app.route('/atualiza_dataframe', methods=['POST'])
+def atualiza_dataframe():
+    if not session.get('logged_in'):
+        return jsonify({"success": False, "error": "Usuário não autenticado"}), 401
+
+    try:
+        data = request.get_json()
+        start = int(data.get('start', 0))
+        limit = int(data.get('limit', 10))
+
+        # 🔥 Buscar planilha por usuário
+        username = session.get("username")
+        config = get_user_sheet_config(username)
+
+        if config:
+            SHEET_URL_USER = config.get("sheet_url")
+            SHEET_NAME_USER = config.get("sheet_name")
+        else:
+            return jsonify({"success": False, "error": "Planilha do usuário não configurada"}), 400
+
+        # 🔥 Ler planilha do usuário
+        df = read_sheet_to_dataframe(SHEET_URL_USER, SHEET_NAME_USER)
+
+        df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
+
+        # Aplicar conversões
+        for col in ["parcela", "prazo", "idade"]:
+            if col in df.columns:
+                df[col] = df[col].apply(parse_brl)
+
+        df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
+        df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
+
+        # --- FILTROS (mantidos do original)
+        saldo_filtro = data.get('saldo', None)
+        uf_filtro = data.get('uf', None)
+        orgao_filtro = data.get('orgao', None)
+
+        filtered_df = aplicar_filtros(
+            df,
+            uf_filtro=uf_filtro,
+            orgao_filtro=orgao_filtro,
+            saldo_filtro=saldo_filtro
+        )
+
+        # --- CRIAR DOC_ID COMO ANTES
+        filtered_df['doc_id'] = filtered_df.apply(
+            lambda row: f"{row['cpf']}_{row['banco']}_{int(row['prazo'])}_{int(row['parcela'])}_{row['uf']}".replace(" ", "").upper(),
+            axis=1
+        )
+
+        filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
+
+        # --- PAGINAÇÃO
+        paginated_df = filtered_df.iloc[start:start + limit].copy()
+        paginated_df["parcela"] = paginated_df["parcela_exibir"]
+        paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+
+        clientes_json = paginated_df.to_dict(orient="records")
+
+        # --- Buscar divulgador salvo no Firestore (mantido igual)
+        for cliente in clientes_json:
+            doc_id = cliente.get('doc_id')
+            if doc_id:
+                doc = db.collection('fluxo_pessoas').document(doc_id).get()
+                if doc.exists:
+                    data_fire = doc.to_dict()
+                    if 'divulgador' in data_fire:
+                        cliente['divulgador'] = data_fire['divulgador']
+                    if 'novo_telefone' in data_fire:
+                        cliente['novo_telefone'] = data_fire['novo_telefone']
+
+        # --- Calcular next_start
+        next_start = start + limit
+        if next_start >= len(filtered_df):
+            next_start = 0
+
+        return jsonify({
+            "clientes": clientes_json,
+            "total_count": len(filtered_df),
+            "next_start": next_start
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # Rota da tela de consulta
 @app.route('/consulta', methods=['GET'])
@@ -430,6 +487,34 @@ def atualizar_fluxo(doc_id):
         print("Erro ao atualizar:", str(e))
         return jsonify({"status": "erro", "msg": str(e)})
 
+
+def get_user_sheet_config(username):
+    """
+    Busca a configuração da planilha do usuário no Firestore.
+    Retorna { sheet_url, sheet_name }
+    """
+    if not username:
+        return None
+
+    ref = db.collection("planilhas_usuarios").document(username).get()
+
+    if not ref.exists:
+        return None
+
+    cfg = ref.to_dict()
+
+    # Garantir que os campos essenciais estão presentes
+    if "sheet_url" not in cfg or "sheet_name" not in cfg:
+        return None
+
+    return {
+        "sheet_url": cfg["sheet_url"],
+        "sheet_name": cfg["sheet_name"]
+    }
+@app.route("/test_sheet")
+def test_sheet():
+    user = session.get("username")
+    return get_user_sheet_config(user) or {"erro": "nenhuma config encontrada"}
 
 # ============================================================
 # 📝 SALVAR CLIENTE (botão)
