@@ -10,6 +10,7 @@ import pandas as pd
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 
+
 # --- Carregar variáveis do .env ---
 load_dotenv()
 
@@ -18,10 +19,14 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
 
 # --- Inicializar Firebase ---
-cred = credentials.Certificate("credenciais.json")
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+firebase_creds_path = os.getenv("FIREBASE_CREDENTIALS")
+if not firebase_creds_path:
+    raise ValueError("FIREBASE_CREDENTIALS não está definido no .env")
 
+cred = credentials.Certificate(firebase_creds_path)
+firebase_admin.initialize_app(cred)
+
+db = firestore.client() 
 # --- Tempo máximo da sessão ---
 SESSION_TIMEOUT_MINUTES = 30
 
