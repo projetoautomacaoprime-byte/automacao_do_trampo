@@ -23,6 +23,37 @@ def get_user_sheet_config(username):
     return {"sheet_url": cfg["sheet_url"], "sheet_name": cfg["sheet_name"]}
 
 # -------------------------------
+# Função para adicionar nome e taxa do órgão
+# -------------------------------
+def adiciona_nome_taxa_orgao(table_data):
+    # Lê todos os órgãos da coleção uma vez
+    orgaos_docs = db.collection("Orgãos_taxa_cod").stream()
+    orgaos_lista = []
+    for doc in orgaos_docs:
+        data = doc.to_dict()
+        orgaos_lista.append(data)
+
+    for cliente in table_data:
+        codigo_orgao = str(cliente.get("orgao", "")).strip()
+        cliente["orgao_nome"] = "Não informado"
+        cliente["orgao_taxa_formatada"] = "—"
+
+        # Procura o código dentro da lista de codigos de cada órgão
+        for orgao in orgaos_lista:
+            codigos = orgao.get("codigos", [])
+            if codigo_orgao in codigos:
+                cliente["orgao_nome"] = orgao.get("nome", "Não informado").upper()
+                taxa = orgao.get("taxa", None)
+                if taxa:
+                    try:
+                        taxa_clean = str(taxa).replace(",", ".").replace("%", "").strip()
+                        cliente["orgao_taxa_formatada"] = f"{float(taxa_clean):.2f}%"
+                    except:
+                        cliente["orgao_taxa_formatada"] = "—"
+                break  # achou o órgão, não precisa continuar
+    return table_data
+
+# -------------------------------
 # Dashboard principal
 # -------------------------------
 @dashboard_bp.route('/dashboard')
@@ -76,8 +107,9 @@ def dashboard():
         paginated_df = filtered_df.iloc[start:start + limit].copy()
         paginated_df["parcela"] = paginated_df["parcela_exibir"]
         paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
-        paginated_df["taxa_orgao"] = paginated_df["taxa_orgao"].apply(lambda x: f"{x*100:.2f}%")
+
         table_data = paginated_df.to_dict(orient="records")
+        table_data = adiciona_nome_taxa_orgao(table_data)
     else:
         table_data = []
 
@@ -155,17 +187,7 @@ def atualiza_dataframe():
         paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
         clientes_json = paginated_df.to_dict(orient="records")
-
-        for cliente in clientes_json:
-            doc_id = cliente.get('doc_id')
-            if doc_id:
-                doc = db.collection('fluxo_pessoas').document(doc_id).get()
-                if doc.exists:
-                    data_fire = doc.to_dict()
-                    if 'divulgador' in data_fire:
-                        cliente['divulgador'] = data_fire['divulgador']
-                    if 'novo_telefone' in data_fire:
-                        cliente['novo_telefone'] = data_fire['novo_telefone']
+        clientes_json = adiciona_nome_taxa_orgao(clientes_json)
 
         next_start = start + limit
         if next_start >= len(filtered_df):
