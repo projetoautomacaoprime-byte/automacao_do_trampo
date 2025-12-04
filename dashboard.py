@@ -1,12 +1,31 @@
 import pandas as pd
 from flask import Blueprint, session, redirect, url_for, request, render_template, jsonify
-from config import db
+from config import db, app
 from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado, format_brl
 from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
 from datetime import datetime
+from flask_wtf.csrf import CSRFProtect, generate_csrf
+from marshmallow import Schema, fields, ValidationError
+import bleach
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+# -------------------------------
+# Ativa CSRF globalmente
+# -------------------------------
+csrf = CSRFProtect()
+csrf.init_app(app)
+
+# -------------------------------
+# Schema para validar cliente
+# -------------------------------
+class ClienteSchema(Schema):
+    doc_id = fields.Str(required=True)
+    novo_telefone = fields.Str(allow_none=True)
+    data_divulgacao = fields.Str(allow_none=True)
+    status = fields.Str(allow_none=True)
+    observacoes = fields.Str(allow_none=True)
 
 # -------------------------------
 # Função para pegar config do usuário
@@ -26,19 +45,14 @@ def get_user_sheet_config(username):
 # Função para adicionar nome e taxa do órgão
 # -------------------------------
 def adiciona_nome_taxa_orgao(table_data):
-    # Lê todos os órgãos da coleção uma vez
     orgaos_docs = db.collection("Orgãos_taxa_cod").stream()
-    orgaos_lista = []
-    for doc in orgaos_docs:
-        data = doc.to_dict()
-        orgaos_lista.append(data)
+    orgaos_lista = [doc.to_dict() for doc in orgaos_docs]
 
     for cliente in table_data:
         codigo_orgao = str(cliente.get("orgao", "")).strip()
         cliente["orgao_nome"] = "Não informado"
         cliente["orgao_taxa_formatada"] = "—"
 
-        # Procura o código dentro da lista de codigos de cada órgão
         for orgao in orgaos_lista:
             codigos = orgao.get("codigos", [])
             if codigo_orgao in codigos:
@@ -50,7 +64,7 @@ def adiciona_nome_taxa_orgao(table_data):
                         cliente["orgao_taxa_formatada"] = f"{float(taxa_clean):.2f}%"
                     except:
                         cliente["orgao_taxa_formatada"] = "—"
-                break  # achou o órgão, não precisa continuar
+                break
     return table_data
 
 # -------------------------------
@@ -113,12 +127,14 @@ def dashboard():
     else:
         table_data = []
 
+    csrf_token = generate_csrf()
     return render_template(
         'dashboard.html',
         table_data=table_data,
         start=start,
         username=session.get('username'),
-        exibidos=len(table_data)
+        exibidos=len(table_data),
+        csrf_token=csrf_token
     )
 
 # -------------------------------
@@ -139,9 +155,10 @@ def get_divulgadores_route():
     return jsonify(divulgadores), 200
 
 # -------------------------------
-# Atualiza dataframe via AJAX
+# Atualiza dataframe via AJAX (seguro)
 # -------------------------------
 @dashboard_bp.route('/atualiza_dataframe', methods=['POST'])
+@csrf.exempt
 def atualiza_dataframe():
     if not session.get('logged_in'):
         return jsonify({"success": False, "error": "Usuário não autenticado"}), 401
@@ -165,11 +182,15 @@ def atualiza_dataframe():
 
         orgaos_fire = carregar_orgaos()
 
+        uf_filtro = bleach.clean(data.get('uf') or "")
+        orgao_filtro = bleach.clean(data.get('orgao') or "")
+        saldo_filtro = bleach.clean(str(data.get('saldo') or ""))
+
         filtered_df = aplicar_filtros(
             df,
-            uf_filtro=data.get('uf'),
-            orgao_filtro=data.get('orgao'),
-            saldo_filtro=data.get('saldo'),
+            uf_filtro=uf_filtro,
+            orgao_filtro=orgao_filtro,
+            saldo_filtro=saldo_filtro,
             orgaos_fire=orgaos_fire
         )
 
@@ -184,7 +205,7 @@ def atualiza_dataframe():
         filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
         paginated_df = filtered_df.iloc[start:start + limit].copy()
         paginated_df["parcela"] = paginated_df["parcela_exibir"]
-        paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+        paginated_df["saldo_devedor"] = filtered_df["saldo_devedor_float"].apply(format_brl)
 
         clientes_json = paginated_df.to_dict(orient="records")
         clientes_json = adiciona_nome_taxa_orgao(clientes_json)
@@ -224,9 +245,15 @@ def cliente(id):
 # Atualizar fluxo
 # -------------------------------
 @dashboard_bp.route("/atualizar_fluxo/<doc_id>", methods=["POST"])
+@csrf.exempt
 def atualizar_fluxo(doc_id):
+    if not session.get('logged_in'):
+        return jsonify({"status": "erro", "msg": "Usuário não autenticado"}), 401
     try:
-        dados = request.get_json()
+        dados_raw = request.get_json()
+        allowed_fields = ['status', 'novo_telefone', 'observacoes']
+        dados = {k: bleach.clean(str(v)) if isinstance(v, str) else v
+                 for k, v in dados_raw.items() if k in allowed_fields}
         db.collection("fluxo_pessoas").document(doc_id).update(dados)
         return jsonify({"status": "ok"})
     except Exception as e:
@@ -234,29 +261,41 @@ def atualizar_fluxo(doc_id):
         return jsonify({"status": "erro", "msg": str(e)})
 
 # -------------------------------
-# Salvar cliente
+# Salvar cliente (seguro)
 # -------------------------------
 @dashboard_bp.route('/salvar_cliente', methods=['POST'])
+@csrf.exempt
 def salvar_cliente():
+    if not session.get('logged_in'):
+        return jsonify({"status": "erro", "tipo": "auth", "mensagem": "Usuário não autenticado"}), 401
+
     try:
-        cliente = request.json
-        if not cliente or 'doc_id' not in cliente:
+        cliente_raw = request.json
+        if not cliente_raw:
             return jsonify({
                 'status': 'erro',
                 'tipo': 'dados',
-                'mensagem': 'Dados do cliente inválidos.'
+                'mensagem': 'Nenhum dado recebido.'
             }), 400
+
+        # Sanitizar
+        cliente_sanitized = {k: bleach.clean(str(v)) if isinstance(v, str) else v
+                             for k, v in cliente_raw.items()}
+
+        try:
+            cliente = ClienteSchema().load(cliente_sanitized)
+        except ValidationError as err:
+            return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': err.messages}), 400
 
         cliente['divulgador'] = session.get('username', 'Desconhecido')
         if not cliente.get('data_divulgacao'):
             cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-        doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
-        novo_telefone = cliente.get('novo_telefone', '').strip()
-        doc_ref.set(cliente, merge=True)
+        allowed_fields = ['doc_id', 'novo_telefone', 'data_divulgacao', 'status', 'observacoes']
+        update_data = {k: v for k, v in cliente.items() if k in allowed_fields}
 
-        if novo_telefone:
-            doc_ref.update({'novo_telefone': novo_telefone})
+        doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
+        doc_ref.set(update_data, merge=True)
 
         return jsonify({'status': 'ok'})
 

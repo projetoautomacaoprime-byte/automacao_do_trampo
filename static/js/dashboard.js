@@ -1,5 +1,4 @@
-// static/js/dashboard.js
-// Código movido do template para arquivo externo — sem inline handlers, sem innerHTML inseguro.
+// dashboard.js - todo código seguro, sem inline handlers
 
 document.addEventListener("DOMContentLoaded", function () {
     const btnAtualiza = document.getElementById('btnAtualiza');
@@ -12,10 +11,9 @@ document.addEventListener("DOMContentLoaded", function () {
     let currentStart = 0;
     let divulgadores = [];
 
-    // --- Captura CSRF token do meta tag ---
+    // CSRF token
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-    // --- Função wrapper para fetch POST com CSRF ---
     async function postCSRF(url, data) {
         const res = await fetch(url, {
             method: 'POST',
@@ -28,74 +26,28 @@ document.addEventListener("DOMContentLoaded", function () {
         return res;
     }
 
-    // --- Buscar nomes dos divulgadores do servidor ---
     async function carregarDivulgadores() {
         try {
             const res = await fetch("/get_divulgadores");
-            if (!res.ok) {
-                divulgadores = [];
-                return;
-            }
-            divulgadores = await res.json();
+            divulgadores = res.ok ? await res.json() : [];
         } catch (e) {
             console.error("Erro ao buscar divulgadores:", e);
             divulgadores = [];
         }
     }
 
-    carregarDivulgadores();
-    carregarOrgaos();
+    carregarDivulgadores(); // mantém apenas a lista de divulgadores
 
-
-   const camposExibir = [
-    "nome", "cpf", "banco", "uf", "orgao_nome",
-    "orgao_taxa_formatada", "saldo_devedor", "parcela",
-    "prazo", "telefone_movel_1", "telefone_movel_2", "telefone_movel_3"
-];
-
-    async function carregarOrgaos() {
-    try {
-        const res = await fetch("/get_orgaos");
-        if (!res.ok) return;
-
-        const orgaos = await res.json();
-        const select = document.getElementById("filter_orgao");
-        if (!select) return;
-
-        // Mantém "Todos" como primeira opção
-        select.innerHTML = '<option value="">Todos</option>';
-
-        orgaos.forEach(o => {
-            // Só órgãos ativos
-            if (o.ativo === true || o.ativo === "true") {
-                // Trata codigos como lista ou string
-                let codigos = [];
-                if (Array.isArray(o.codigos)) {
-                    codigos = o.codigos;
-                } else if (typeof o.codigos === "string") {
-                    codigos = o.codigos.split(",").map(c => c.trim());
-                }
-
-                codigos.forEach(codigo => {
-                    const opt = document.createElement("option");
-                    opt.value = codigo.trim();  // garante string limpa
-                    opt.textContent = `${o.nome} (${codigo.trim()})`;
-                    select.appendChild(opt);
-                });
-            }
-        });
-
-    } catch (e) {
-        console.error("Erro ao carregar órgãos:", e);
-    }
-}
-
-
+    const camposExibir = [
+        "nome", "cpf", "banco", "uf", "orgao_nome",
+        "orgao_taxa_formatada", "saldo_devedor", "parcela",
+        "prazo", "telefone_movel_1", "telefone_movel_2", "telefone_movel_3"
+    ];
 
     btnAplicarFiltros.addEventListener('click', function () {
         filtrosSalvos.saldo = document.getElementById('filter_saldo').value.trim();
         filtrosSalvos.uf = document.getElementById('filter_uf').value.trim();
-        filtrosSalvos.orgao = document.getElementById('filter_orgao').value.trim();
+        filtrosSalvos.orgao = document.getElementById('filter_orgao').value.trim(); // input de texto
         currentStart = 0;
         exibidosSpan.innerText = 0;
         tabsContainer.innerHTML = "";
@@ -115,15 +67,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 uf: filtrosSalvos.uf,
                 orgao: filtrosSalvos.orgao
             });
-
-            if (!res.ok) {
-                console.error('Resposta inválida do servidor ao atualizar dataframe', res.status);
-                return;
-            }
+            if (!res.ok) return console.error('Resposta inválida do servidor');
 
             const data = await res.json();
             const clientes = Array.isArray(data.clientes) ? data.clientes : [];
-
             tabsContainer.innerHTML = "";
             clientesContainer.innerHTML = "";
 
@@ -170,23 +117,11 @@ document.addEventListener("DOMContentLoaded", function () {
                             p.appendChild(document.createTextNode(' '));
                             p.appendChild(copiarBtn);
 
-                        }  else if (key === 'orgao_taxa_formatada') {
-                            let txt = '—';
-
-                            if (typeof value === 'number') {
-                                txt = value.toFixed(2) + '%';
-                            } else if (!isNaN(Number(value))) {
-                                txt = Number(value).toFixed(2) + '%';
-                            } else if (value) {
-                                txt = String(value);
-                            }
-
+                        } else if (key === 'orgao_taxa_formatada') {
+                            let txt = value ? String(value) : '—';
                             p.appendChild(document.createTextNode(txt));
-
-                        } else if (key === 'orgao_nome') {
-                            p.appendChild(document.createTextNode(String(value || '—')));
                         } else {
-                            p.appendChild(document.createTextNode(String(value)));
+                            p.appendChild(document.createTextNode(String(value || '—')));
                         }
 
                         div.appendChild(p);

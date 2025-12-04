@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<meta name="csrf-token" content="{{ csrf_token() }}">
+<meta name="csrf-token" content="{{ csrf_token }}">
 
 <meta charset="UTF-8">
 <title>Dashboard Clientes</title>
@@ -37,28 +37,10 @@
 <div id="clientes-container"></div>
 
 <div class="centralizado">
-   <center> <button id="btnAtualiza">Mostrar Próximos 10 Clientes</button></center>
+   <center><button id="btnAtualiza">Mostrar Próximos 10 Clientes</button></center>
 </div>
 
 <!-- JS externo seguro -->
-<script nonce="{{ g.csp_nonce }}">
-// Captura do token CSRF para AJAX
-const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-
-// Exemplo de função AJAX para atualizar clientes (adaptar conforme dashboard.js)
-async function atualizaClientes(data) {
-    const response = await fetch("{{ url_for('dashboard.atualiza_dataframe') }}", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": csrfToken
-        },
-        body: JSON.stringify(data)
-    });
-    return await response.json();
-}
-</script>
-
 <script nonce="{{ g.csp_nonce }}" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
