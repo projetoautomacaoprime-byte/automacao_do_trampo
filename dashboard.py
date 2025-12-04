@@ -76,6 +76,7 @@ def dashboard():
         paginated_df = filtered_df.iloc[start:start + limit].copy()
         paginated_df["parcela"] = paginated_df["parcela_exibir"]
         paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+        paginated_df["taxa_orgao"] = paginated_df["taxa_orgao"].apply(lambda x: f"{x*100:.2f}%")
         table_data = paginated_df.to_dict(orient="records")
     else:
         table_data = []

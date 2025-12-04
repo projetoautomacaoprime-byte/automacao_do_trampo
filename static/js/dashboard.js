@@ -47,11 +47,11 @@ document.addEventListener("DOMContentLoaded", function () {
     carregarOrgaos();
 
 
-    const camposExibir = [
-        "nome", "cpf", "banco", "uf", "orgao_nome",
-        "taxa_orgao", "saldo_devedor", "parcela",
-        "prazo", "telefone_movel_1", "telefone_movel_2", "telefone_movel_3"
-    ];
+   const camposExibir = [
+    "nome", "cpf", "banco", "uf", "orgao_nome",
+    "orgao_taxa_formatada", "saldo_devedor", "parcela",
+    "prazo", "telefone_movel_1", "telefone_movel_2", "telefone_movel_3"
+];
 
     async function carregarOrgaos() {
     try {
@@ -169,8 +169,10 @@ document.addEventListener("DOMContentLoaded", function () {
                             p.appendChild(spanTel);
                             p.appendChild(document.createTextNode(' '));
                             p.appendChild(copiarBtn);
-                        } else if (key === 'taxa_orgao') {
+
+                        }  else if (key === 'orgao_taxa_formatada') {
                             let txt = '—';
+
                             if (typeof value === 'number') {
                                 txt = value.toFixed(2) + '%';
                             } else if (!isNaN(Number(value))) {
@@ -178,7 +180,9 @@ document.addEventListener("DOMContentLoaded", function () {
                             } else if (value) {
                                 txt = String(value);
                             }
+
                             p.appendChild(document.createTextNode(txt));
+
                         } else if (key === 'orgao_nome') {
                             p.appendChild(document.createTextNode(String(value || '—')));
                         } else {

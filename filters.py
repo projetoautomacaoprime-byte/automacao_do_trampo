@@ -7,10 +7,15 @@ db = firestore.client()
 # LER ÓRGÃOS DO FIRESTORE
 # ----------------------------------------------------
 def carregar_orgaos():
-    orgaos_ref = db.collection("orgaos")
+    orgaos_ref = db.collection("Orgãos_taxa_cod")
     docs = orgaos_ref.stream()
 
     lista_orgaos = []
+
+    print("Coleção lida:", orgaos_ref)
+    print("Documentos encontrados:")
+    for doc in orgaos_ref.stream():
+        print(doc.id, doc.to_dict())
 
     for doc in docs:
         data = doc.to_dict()
@@ -19,11 +24,14 @@ def carregar_orgaos():
 
         nome = data.get("nome", "").strip()
         taxa_raw = data.get("taxa", "0")
-        codigos_raw = data.get("codigos", "")
+        codigos_raw = data.get("codigos", [])
         ativo_raw = data.get("ativo", "false")
 
-        # "22202, 1997" → ["22202", "1997"]
-        codigos = [c.strip() for c in codigos_raw.split(",")]
+        # Firestore: codigos é ARRAY (não string)
+        if isinstance(codigos_raw, list):
+            codigos = [str(c).strip() for c in codigos_raw]
+        else:
+            codigos = [c.strip() for c in str(codigos_raw).split(",")]
 
         # "1,36%" → 0.0136
         taxa_str = str(taxa_raw).replace("%", "").replace(",", ".").strip()
@@ -41,73 +49,90 @@ def carregar_orgaos():
     return lista_orgaos
 
 
+# ----------------------------------------------------
+# FILTRAR DATAFRAME
+# ----------------------------------------------------
 def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_filtro=None, orgaos_fire=None) -> pd.DataFrame:
+
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # -------------------------------
-    # 1) FILTRO DE SALDO
-    # -------------------------------
     saldo_min = float(saldo_filtro) if saldo_filtro else 25000
     filtered_df = df[df.get("saldo_devedor_float", 0) >= saldo_min].copy()
 
-    # -------------------------------
-    # 2) BANCO E IDADE
-    # -------------------------------
+    # Banco + Idade
     filtered_df['banco_clean'] = (
         filtered_df['banco'].astype(str).str.strip().str.lower()
         if 'banco' in filtered_df.columns else ""
     )
-    filtered_df['idade'] = filtered_df.get('idade', 0)
-    blocked_banks = [""]  # lista de bancos bloqueados
-    filtered_df = filtered_df[~filtered_df['banco_clean'].isin(blocked_banks)]
-    filtered_df = filtered_df[filtered_df['idade'] <= 70]
+    filtered_df = filtered_df[filtered_df['banco_clean'] != ""]
+    filtered_df = filtered_df[filtered_df.get('idade', 0) <= 70]
 
-    # -------------------------------
-    # 3) LIMPEZA DO CÓDIGO DO ÓRGÃO
-    # -------------------------------
+    # Limpeza do órgão → deixa só números
     if "orgao" in filtered_df.columns:
         filtered_df["orgao_clean"] = (
-            filtered_df["orgao"].astype(str).str.replace(".0", "", regex=False).str.strip()
+            filtered_df["orgao"]
+                .astype(str)
+                .str.replace(r"[^0-9]", "", regex=True)
+                .str.strip()
         )
 
-    # -------------------------------
-    # 4) FILTRO DE ÓRGÃOS (FIRESTORE + MANUAL)
-    # -------------------------------
-    codigos_validos = set()  # inicializa sempre, evita erro
-    if orgaos_fire and "orgao_clean" in filtered_df.columns:
+    # ----------------------------------------------------------
+    # CRIAR MAPA DE CÓDIGOS → ÓRGÃOS (nome, taxa)
+    # ----------------------------------------------------------
+    codigo_to_orgao = {}
+
+    if orgaos_fire:
         for org in orgaos_fire:
-            if org.get("ativo", False):
-                for c in org.get("codigos", []):
-                    codigos_validos.add(str(c).strip())
+            if not org.get("ativo", False):
+                continue
 
-        # aplica filtro manual se passado
-        if orgao_filtro:
-            orgao_filtro = str(orgao_filtro).strip()
-            codigos_filtro_manual = set()
-            for org in orgaos_fire:
-                if orgao_filtro.lower() == org.get("nome", "").lower() or orgao_filtro in org.get("codigos", []):
-                    for c in org.get("codigos", []):
-                        codigos_filtro_manual.add(str(c).strip())
-            if codigos_filtro_manual:
-                codigos_validos &= codigos_filtro_manual
-            else:
-                codigos_validos = {orgao_filtro}  # tenta direto se não achar correspondência
+            nome = org.get("nome", "")
+            taxa = org.get("taxa", 0)
+            codigos = org.get("codigos", [])
 
-        filtered_df = filtered_df[filtered_df["orgao_clean"].isin(codigos_validos)]
+            for c in codigos:
+                c_normalizado = "".join(filter(str.isdigit, str(c)))
+                codigo_to_orgao[c_normalizado] = {
+                    "nome": nome,
+                    "taxa": taxa
+                }
 
-    # -------------------------------
-    # 5) FILTRO DE UF
-    # -------------------------------
-    if uf_filtro and 'uf' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['uf'].str.upper() == uf_filtro.upper()]
+    # ----------------------------------------------------------
+    # FILTRAR APENAS CÓDIGOS EXISTENTES NO FIRESTORE
+    # ----------------------------------------------------------
+    filtered_df = filtered_df[
+        filtered_df["orgao_clean"].isin(codigo_to_orgao.keys())
+    ].copy()
 
-    # -------------------------------
-    # 6) REMOVE COLUNAS TEMPORÁRIAS
-    # -------------------------------
-    filtered_df.drop(columns=['banco_clean', 'orgao_clean'], errors='ignore', inplace=True)
+    if filtered_df.empty:
+        return filtered_df
 
-    # -------------------------------
-    # 7) RETORNO FINAL
-    # -------------------------------
+    # ----------------------------------------------------------
+    # ADICIONAR NOME DO ÓRGÃO + TAXa
+    # ----------------------------------------------------------
+    filtered_df["nome_orgao"] = filtered_df["orgao_clean"].apply(
+        lambda x: codigo_to_orgao.get(x, {}).get("nome", "")
+    )
+
+    filtered_df["taxa_orgao"] = filtered_df["orgao_clean"].apply(
+        lambda x: codigo_to_orgao.get(x, {}).get("taxa", 0)
+    )
+
+    # Filtro manual de órgão
+    if orgao_filtro:
+        orgao_filtro = str(orgao_filtro).lower().strip()
+        filtered_df = filtered_df[
+            filtered_df["nome_orgao"].str.lower() == orgao_filtro
+        ]
+
+    # Filtro UF
+    if uf_filtro and "uf" in filtered_df.columns:
+        filtered_df = filtered_df[
+            filtered_df["uf"].str.upper() == uf_filtro.upper()
+        ]
+
+    # Limpeza final
+    filtered_df.drop(columns=["banco_clean", "orgao_clean"], errors="ignore", inplace=True)
+
     return filtered_df
