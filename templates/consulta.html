@@ -4,8 +4,12 @@
   <meta charset="utf-8" />
   <title>Consulta — Fluxo Pessoas</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- CSS externo permitido na CSP -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-  <style>
+
+  <!-- CSS inline com NONCE -->
+  <style nonce="{{ g.csp_nonce }}">
     body { font-family: Arial, sans-serif; padding: 20px; background: #fafafa; }
     .container { max-width: 900px; margin: 0 auto; }
     .search-row { display: flex; gap: 8px; margin-bottom: 15px; }
@@ -17,16 +21,19 @@
     .btn-load:disabled { background: #ccc; cursor: default; }
   </style>
 </head>
+
 <body>
 <div class="container">
-  <h2>🔍 Consulta de Pessoas</h2>
+  <h2>Consulta de Pessoas</h2>
 
   <div class="search-row">
     <input type="text" id="busca_geral" placeholder="Pesquisar por nome, CPF, telefone, e-mail, órgão, banco...">
+
     <select id="filtro_divulgador">
       <option value="">Todos os divulgadores</option>
-      <option value="{{ username }}">Meus divulgados</option>
+      <option value="{{ username | e }}">Meus divulgados</option>
     </select>
+
     <button id="btnPesquisar">Buscar</button>
   </div>
 
@@ -36,76 +43,116 @@
   </div>
 </div>
 
-<script>
-// ---------------------------------------------------------------------------
-// 🔥 FUNÇÃO GLOBAL DE FETCH COM ERROS IMEDIATOS
-// ---------------------------------------------------------------------------
+<!-- SCRIPT SEGURO COM NONCE -->
+<script nonce="{{ g.csp_nonce }}">
+const CSRF_TOKEN = "{{ csrf_token() }}";
+
+// ======================================================
+// 🔒 SAFE FETCH
+// ======================================================
 async function safeFetch(url, options = {}) {
-  if (!navigator.onLine) {
-    throw new Error("offline");
-  }
+  options.headers = options.headers || {};
+  options.headers["X-CSRFToken"] = CSRF_TOKEN;
 
   let response;
   try {
     response = await fetch(url, options);
-  } catch (e) {
-    throw new Error("servidor_off");
+  } catch {
+    throw new Error("erro_fetch");
   }
-
   return response;
 }
 
-// ---------------------------------------------------------------------------
-// 🔥 RENDERIZA UM CARD COMPLETO
-// ---------------------------------------------------------------------------
+// ======================================================
+// 🔒 CARD SEGURO (SEM innerHTML MALICIOSO)
+// ======================================================
+function criarSpan(label, valor) {
+  const p = document.createElement("p");
+  const b = document.createElement("strong");
+  b.textContent = label + ": ";
+  const span = document.createElement("span");
+  span.dataset.field = label.toLowerCase();
+  span.textContent = valor || "-";
+  p.appendChild(b);
+  p.appendChild(span);
+  return p;
+}
+
 function renderizarCard(c) {
-  const div = document.createElement('div');
-  div.classList.add('card');
+  const div = document.createElement("div");
+  div.classList.add("card");
   div.id = "card-" + c.doc_id;
-  div.setAttribute("data-id", c.doc_id);
+  div.dataset.id = c.doc_id;
 
-  div.innerHTML = `
-    <p><strong>Nome:</strong> <span data-field="nome">${c.nome || '-'}</span></p>
-    <p><strong>CPF:</strong> <span data-field="cpf">${c.cpf || '-'}</span></p>
-    <p><strong>Idade:</strong> <span data-field="idade">${c.idade || '-'}</span></p>
-    <p><strong>Órgão:</strong> <span data-field="orgao_nome">${c.orgao_nome || '-'}</span></p>
-    <p><strong>UF:</strong> <span data-field="uf">${c.uf || '-'}</span></p>
-    <p><strong>Banco:</strong> <span data-field="banco">${c.banco || '-'}</span></p>
-    <p><strong>Telefone 1:</strong> <span data-field="telefone_movel_1">${c.telefone_movel_1 || '-'}</span></p>
-    <p><strong>Telefone 2:</strong> <span data-field="telefone_movel_2">${c.telefone_movel_2 || '-'}</span></p>
-    <p><strong>Telefone 3:</strong> <span data-field="telefone_movel_3">${c.telefone_movel_3 || '-'}</span></p>
-    <p><strong>Divulgador:</strong> <span data-field="divulgador">${c.divulgador || '-'}</span></p>
-    <p><strong>Data da Divulgação:</strong> <span data-field="data_divulgacao">${c.data_divulgacao || '-'}</span></p>
+  const campos = {
+    Nome: c.nome,
+    CPF: c.cpf,
+    Idade: c.idade,
+    Órgão: c.orgao_nome,
+    UF: c.uf,
+    Banco: c.banco,
+    "Telefone 1": c.telefone_movel_1,
+    "Telefone 2": c.telefone_movel_2,
+    "Telefone 3": c.telefone_movel_3,
+    Divulgador: c.divulgador,
+    "Data Divulgação": c.data_divulgacao
+  };
 
-    <div style="margin-top:10px;">
-        <button class="btn-editar" onclick="editarCliente('${c.doc_id}', this)">Editar</button>
-        <button class="btn-salvar" onclick="salvarCliente('${c.doc_id}', this)" style="display:none;">Salvar</button>
-    </div>
-  `;
+  for (const [label, valor] of Object.entries(campos)) {
+    const p = document.createElement("p");
+    const b = document.createElement("strong");
+    b.textContent = label + ": ";
+    const span = document.createElement("span");
+    span.dataset.field = label.toLowerCase().replace(" ", "_");
+    span.textContent = valor || "-";
+    p.appendChild(b);
+    p.appendChild(span);
+    div.appendChild(p);
+  }
+
+  const btnArea = document.createElement("div");
+  btnArea.style.marginTop = "10px";
+
+  const btnEditar = document.createElement("button");
+  btnEditar.classList.add("btn-editar");
+  btnEditar.textContent = "Editar";
+
+  const btnSalvar = document.createElement("button");
+  btnSalvar.classList.add("btn-salvar");
+  btnSalvar.textContent = "Salvar";
+  btnSalvar.style.display = "none";
+
+  btnArea.appendChild(btnEditar);
+  btnArea.appendChild(btnSalvar);
+  div.appendChild(btnArea);
+
+  // add listeners SEM inline
+  btnEditar.addEventListener("click", () => editarCliente(c.doc_id, btnEditar, btnSalvar));
+  btnSalvar.addEventListener("click", () => salvarCliente(c.doc_id, btnEditar, btnSalvar));
 
   return div;
 }
 
-// ---------------------------------------------------------------------------
-// 🔥 BUSCAR FLUXO
-// ---------------------------------------------------------------------------
-document.addEventListener('DOMContentLoaded', () => {
-  const inputBusca = document.getElementById('busca_geral');
-  const btnPesquisar = document.getElementById('btnPesquisar');
-  const btnCarregarMais = document.getElementById('btnCarregarMais');
-  const clientesContainer = document.getElementById('clientes-container');
-  const filtroDivulgador = document.getElementById('filtro_divulgador');
+// ======================================================
+// 🔍 BUSCA (SEGURO)
+// ======================================================
+document.addEventListener("DOMContentLoaded", () => {
+  const inputBusca = document.getElementById("busca_geral");
+  const filtroDivulgador = document.getElementById("filtro_divulgador");
+  const btnPesquisar = document.getElementById("btnPesquisar");
+  const btnCarregarMais = document.getElementById("btnCarregarMais");
+  const clientesContainer = document.getElementById("clientes-container");
 
-  let termoAtual = '';
+  let termoAtual = "";
   let lastDocId = null;
   let carregando = false;
 
-  async function buscarFluxo(reset = false) {
+  async function buscar(reset = false) {
     if (carregando) return;
     carregando = true;
 
     if (reset) {
-      clientesContainer.innerHTML = '';
+      clientesContainer.innerHTML = "";
       lastDocId = null;
     }
 
@@ -117,9 +164,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     try {
-      const res = await safeFetch('/buscar_fluxo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await safeFetch("/buscar_fluxo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
 
@@ -127,110 +174,87 @@ document.addEventListener('DOMContentLoaded', () => {
       const clientes = data.clientes || [];
 
       if (clientes.length === 0 && reset) {
-        clientesContainer.innerHTML = '<p>Nenhum resultado encontrado.</p>';
-        btnCarregarMais.style.display = 'none';
+        clientesContainer.innerHTML = "<p>Nenhum resultado encontrado.</p>";
+        btnCarregarMais.style.display = "none";
       } else {
-        clientes.forEach(c => {
-          clientesContainer.appendChild(renderizarCard(c));
-        });
-
-        lastDocId = clientes[clientes.length - 1]?.doc_id || null;
-
-        btnCarregarMais.style.display = clientes.length < 20 ? 'none' : 'inline-block';
+        clientes.forEach(c => clientesContainer.appendChild(renderizarCard(c)));
+        lastDocId = clientes.at(-1)?.doc_id || null;
+        btnCarregarMais.style.display = clientes.length < 20 ? "none" : "inline-block";
       }
 
-    } catch (err) {
-      if (err.message === "offline") {
-        alert("❌ Sem internet! Conecte-se e tente novamente.");
-      } else {
-        alert("❌ Erro ao buscar dados! Servidor indisponível.");
-      }
+    } catch {
+      alert("❌ Erro na busca");
     }
 
     carregando = false;
   }
 
-  // EVENTOS
-  btnPesquisar.addEventListener('click', () => {
+  btnPesquisar.addEventListener("click", () => {
     termoAtual = inputBusca.value.trim();
-    buscarFluxo(true);
+    buscar(true);
   });
 
-  inputBusca.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
+  inputBusca.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
       termoAtual = inputBusca.value.trim();
-      buscarFluxo(true);
+      buscar(true);
     }
   });
 
-  btnCarregarMais.addEventListener('click', () => {
-    buscarFluxo(false);
-  });
+  btnCarregarMais.addEventListener("click", () => buscar(false));
 });
 
-// ---------------------------------------------------------------------------
-// 🔥 EDITAR CLIENTE
-// ---------------------------------------------------------------------------
-function editarCliente(id, btnEditar) {
+// ======================================================
+// ✏ EDITAR / SALVAR (SEGURO)
+// ======================================================
+function editarCliente(id, btnEditar, btnSalvar) {
   const card = document.getElementById("card-" + id);
   const spans = card.querySelectorAll("span[data-field]");
 
   spans.forEach(span => {
-    const valor = span.innerText === "-" ? "" : span.innerText;
-    span.outerHTML = `<input data-field="${span.dataset.field}" value="${valor}">`;
+    const value = span.textContent === "-" ? "" : span.textContent;
+    const input = document.createElement("input");
+    input.dataset.field = span.dataset.field;
+    input.value = value;
+    span.replaceWith(input);
   });
 
   btnEditar.style.display = "none";
-  btnEditar.nextElementSibling.style.display = "inline-block";
+  btnSalvar.style.display = "inline-block";
 }
 
-// ---------------------------------------------------------------------------
-// 🔥 SALVAR CLIENTE COM ERROS IMEDIATOS
-// ---------------------------------------------------------------------------
-async function salvarCliente(id, btnSalvar) {
+async function salvarCliente(id, btnEditar, btnSalvar) {
   const card = document.getElementById("card-" + id);
-  const realId = id || card.getAttribute("data-id");
-
-  if (!realId) {
-    alert("Erro: ID não encontrado!");
-    return;
-  }
-
   const inputs = card.querySelectorAll("input[data-field]");
-  let body = {};
+  const body = {};
+
   inputs.forEach(inp => body[inp.dataset.field] = inp.value.trim());
 
   try {
-    const response = await safeFetch(`/atualizar_fluxo/${realId}`, {
+    const res = await safeFetch(`/atualizar_fluxo/${id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
 
-    const data = await response.json().catch(() => null);
+    const data = await res.json();
 
-    if (!response.ok || !data || data.status !== "ok") {
-      throw new Error("erro_salvar");
-    }
+    if (!res.ok || !data || data.status !== "ok") throw new Error("erro");
 
-    // Transformar inputs em spans
     inputs.forEach(inp => {
-      inp.outerHTML = `<span data-field="${inp.dataset.field}">${inp.value || '-'}</span>`;
+      const span = document.createElement("span");
+      span.dataset.field = inp.dataset.field;
+      span.textContent = inp.value || "-";
+      inp.replaceWith(span);
     });
 
     btnSalvar.style.display = "none";
-    btnSalvar.previousElementSibling.style.display = "inline-block";
+    btnEditar.style.display = "inline-block";
 
-    alert("Salvo com sucesso!");
+    alert("✔ Salvo!");
 
-  } catch (err) {
-    if (err.message === "offline") {
-      alert("❌ Sem internet! Não foi possível salvar.");
-    } else if (err.message === "servidor_off") {
-      alert("❌ Servidor indisponível! Tente novamente mais tarde.");
-    } else {
-      alert("❌ Erro ao salvar! Tente novamente.");
-    }
+  } catch {
+    alert("❌ Erro ao salvar");
   }
 }
 </script>

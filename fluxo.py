@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, render_template, session
-from utils.divulgadores import get_divulgadores_list
+from divulgadores import get_divulgadores_list
 from config import db
 from datetime import datetime
 

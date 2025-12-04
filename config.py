@@ -10,12 +10,18 @@ load_dotenv()
 
 # --- Configuração do Flask ---
 app = Flask(__name__)
+
+# SECRET KEY obrigatória para CSRF funcionar
 app.secret_key = os.getenv("SECRET_KEY")
 
+# CSRF ativado
+app.config["WTF_CSRF_ENABLED"] = True
+
+# Tempo de sessão
 SESSION_TIMEOUT_MINUTES = 30
 app.permanent_session_lifetime = timedelta(minutes=SESSION_TIMEOUT_MINUTES)
 
-# Hardening das cookies de sessão
+# Cookies mais seguros
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'

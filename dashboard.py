@@ -1,10 +1,12 @@
-from flask import session, redirect, url_for, request, render_template, jsonify
-from config import db, app
+import pandas as pd
+from flask import Blueprint, session, redirect, url_for, request, render_template, jsonify
+from config import db
 from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado, format_brl
-from filters import aplicar_filtros
+from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
 from datetime import datetime
-import pandas as pd
+
+dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------
 # Função para pegar config do usuário
@@ -23,10 +25,10 @@ def get_user_sheet_config(username):
 # -------------------------------
 # Dashboard principal
 # -------------------------------
-@app.route('/dashboard')
+@dashboard_bp.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
-        return redirect(url_for('home'))
+        return redirect(url_for('auth.home'))
 
     username = session.get("username")
     config = get_user_sheet_config(username)
@@ -54,7 +56,16 @@ def dashboard():
     saldo_filtro = request.args.get('saldo', None)
     uf_filtro = request.args.get('uf', None)
     orgao_filtro = request.args.get('orgao', None)
-    filtered_df = aplicar_filtros(df, uf_filtro=uf_filtro, orgao_filtro=orgao_filtro, saldo_filtro=saldo_filtro)
+
+    orgaos_fire = carregar_orgaos()
+
+    filtered_df = aplicar_filtros(
+        df,
+        uf_filtro=uf_filtro,
+        orgao_filtro=orgao_filtro,
+        saldo_filtro=saldo_filtro,
+        orgaos_fire=orgaos_fire
+    )
 
     if not filtered_df.empty:
         filtered_df['doc_id'] = filtered_df.apply(
@@ -69,12 +80,35 @@ def dashboard():
     else:
         table_data = []
 
-    return render_template('sheets_view.html', table_data=table_data, start=start, username=session.get('username'), exibidos=len(table_data))
+    return render_template(
+        'dashboard.html',
+        table_data=table_data,
+        start=start,
+        username=session.get('username'),
+        exibidos=len(table_data)
+    )
+
+# -------------------------------
+# Rotas de órgãos e divulgadores
+# -------------------------------
+@dashboard_bp.route("/get_orgaos")
+def get_orgaos_route():
+    orgaos = carregar_orgaos()
+    lista = [
+        {"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]}
+        for o in orgaos
+    ]
+    return jsonify(lista), 200
+
+@dashboard_bp.route("/get_divulgadores")
+def get_divulgadores_route():
+    divulgadores = get_divulgadores_list()
+    return jsonify(divulgadores), 200
 
 # -------------------------------
 # Atualiza dataframe via AJAX
 # -------------------------------
-@app.route('/atualiza_dataframe', methods=['POST'])
+@dashboard_bp.route('/atualiza_dataframe', methods=['POST'])
 def atualiza_dataframe():
     if not session.get('logged_in'):
         return jsonify({"success": False, "error": "Usuário não autenticado"}), 401
@@ -96,7 +130,15 @@ def atualiza_dataframe():
             df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
             df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
 
-        filtered_df = aplicar_filtros(df, uf_filtro=data.get('uf'), orgao_filtro=data.get('orgao'), saldo_filtro=data.get('saldo'))
+        orgaos_fire = carregar_orgaos()
+
+        filtered_df = aplicar_filtros(
+            df,
+            uf_filtro=data.get('uf'),
+            orgao_filtro=data.get('orgao'),
+            saldo_filtro=data.get('saldo'),
+            orgaos_fire=orgaos_fire
+        )
 
         if filtered_df.empty:
             return jsonify({"clientes": [], "total_count": 0, "next_start": 0})
@@ -105,10 +147,12 @@ def atualiza_dataframe():
             lambda row: f"{row.get('cpf','')}_{row.get('banco','')}_{int(row.get('prazo',0))}_{int(row.get('parcela',0))}_{row.get('uf','')}".replace(" ", "").upper(),
             axis=1
         )
+
         filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
         paginated_df = filtered_df.iloc[start:start + limit].copy()
         paginated_df["parcela"] = paginated_df["parcela_exibir"]
         paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+
         clientes_json = paginated_df.to_dict(orient="records")
 
         for cliente in clientes_json:
@@ -126,78 +170,37 @@ def atualiza_dataframe():
         if next_start >= len(filtered_df):
             next_start = 0
 
-        return jsonify({"clientes": clientes_json, "total_count": len(filtered_df), "next_start": next_start})
+        return jsonify({
+            "clientes": clientes_json,
+            "total_count": len(filtered_df),
+            "next_start": next_start
+        })
+
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 # -------------------------------
 # Consulta
 # -------------------------------
-@app.route('/consulta', methods=['GET'])
+@dashboard_bp.route('/consulta', methods=['GET'])
 def consulta():
     if not session.get('logged_in'):
-        return redirect(url_for('home'))
+        return redirect(url_for('auth.home'))
     return render_template('consulta.html', username=session.get('username'))
-
-@app.route('/buscar_fluxo', methods=['POST'])
-def buscar_fluxo():
-    data = request.get_json()
-    termo = data.get('q', '').strip().lower()
-    limit = data.get('limit', 20)
-    divulgador_filtro = data.get('divulgador')
-
-    colecao = db.collection('fluxo_pessoas')
-    query = colecao.order_by('nome')
-    resultados = []
-
-    for doc in query.stream():
-        d = doc.to_dict()
-        if not d:
-            continue
-        if divulgador_filtro and d.get('divulgador') != divulgador_filtro:
-            continue
-        if termo and not any(termo in str(d.get(field, '')).lower() for field in ['nome', 'cpf', 'telefone_movel_1', 'telefone_movel_2', 'telefone_movel_3', 'email_1', 'email_2', 'email_3', 'orgao_nome', 'banco']):
-            continue
-        d['doc_id'] = doc.id
-        d['orgao_nome'] = d.get('orgao_nome', 'Desconhecido')
-        d['uf'] = d.get('uf', '-')
-        d['telefone'] = d.get('telefone_movel_1') or d.get('telefone_movel_2') or d.get('telefone_movel_3') or '-'
-        d['idade'] = d.get('idade', '-')
-        d['divulgador'] = d.get('divulgador', '-')
-
-        resultado_limpo = {
-            'doc_id': d['doc_id'],
-            'nome': d.get('nome', ''),
-            'cpf': d.get('cpf', ''),
-            'idade': d.get('idade', ''),
-            'orgao_nome': d.get('orgao_nome', ''),
-            'uf': d.get('uf', ''),
-            'banco': d.get('banco', '-'),
-            'telefone_movel_1': d.get('telefone_movel_1', '-'),
-            'telefone_movel_2': d.get('telefone_movel_2', '-'),
-            'telefone_movel_3': d.get('telefone_movel_3', '-'),
-            'divulgador': d.get('divulgador', ''),
-            'data_divulgacao': d.get('data_divulgacao', '-')
-        }
-        resultados.append(resultado_limpo)
-
-    clientes = resultados[:limit]
-    mais = len(resultados) > limit
-    return jsonify({'clientes': clientes, 'has_more': mais})
 
 # -------------------------------
 # Cliente individual
 # -------------------------------
-@app.route('/cliente/<id>')
+@dashboard_bp.route('/cliente/<id>')
 def cliente(id):
     cliente_data = db.collection("clientes").document(id).get().to_dict()
     divulgadores = get_divulgadores_list()
-    return render_template('sheets_view.html', cliente=cliente_data, divulgadores=divulgadores)
+    return render_template('dashboard.html', cliente=cliente_data, divulgadores=divulgadores)
 
 # -------------------------------
 # Atualizar fluxo
 # -------------------------------
-@app.route("/atualizar_fluxo/<doc_id>", methods=["POST"])
+@dashboard_bp.route("/atualizar_fluxo/<doc_id>", methods=["POST"])
 def atualizar_fluxo(doc_id):
     try:
         dados = request.get_json()
@@ -210,21 +213,34 @@ def atualizar_fluxo(doc_id):
 # -------------------------------
 # Salvar cliente
 # -------------------------------
-@app.route('/salvar_cliente', methods=['POST'])
+@dashboard_bp.route('/salvar_cliente', methods=['POST'])
 def salvar_cliente():
     try:
         cliente = request.json
         if not cliente or 'doc_id' not in cliente:
-            return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': 'Dados do cliente inválidos.'}), 400
+            return jsonify({
+                'status': 'erro',
+                'tipo': 'dados',
+                'mensagem': 'Dados do cliente inválidos.'
+            }), 400
+
         cliente['divulgador'] = session.get('username', 'Desconhecido')
         if not cliente.get('data_divulgacao'):
             cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
         doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
         novo_telefone = cliente.get('novo_telefone', '').strip()
         doc_ref.set(cliente, merge=True)
+
         if novo_telefone:
             doc_ref.update({'novo_telefone': novo_telefone})
+
         return jsonify({'status': 'ok'})
+
     except Exception as e:
         print("Erro geral do servidor:", e)
-        return jsonify({'status': 'erro', 'tipo': 'servidor', 'mensagem': str(e)}), 500
+        return jsonify({
+            'status': 'erro',
+            'tipo': 'servidor',
+            'mensagem': str(e)
+        }), 500
