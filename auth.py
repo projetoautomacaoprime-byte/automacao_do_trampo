@@ -1,7 +1,9 @@
+# auth.py
 from flask import Blueprint, session, redirect, url_for, request, render_template
 from werkzeug.security import check_password_hash, generate_password_hash
 from config import db, app
 from datetime import datetime, timezone
+from security import get_identifier, check_block, register_attempt  # Funções brute force
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -18,13 +20,12 @@ def verificar_sessao():
 
     # Rotas públicas do auth
     if request.endpoint in (
-    "auth.home",
-    "auth.login",
-    "auth.alterar_senha",
-    "auth.logout",
-):
+        "auth.home",
+        "auth.login",
+        "auth.alterar_senha",
+        "auth.logout",
+    ):
         return None
-
 
     if not session.get("logged_in"):
         return redirect(url_for("auth.home"))
@@ -68,7 +69,6 @@ def verificar_sessao():
     session["last_seen"] = now.strftime("%Y-%m-%d %H:%M:%S%z")
     return None
 
-
 # ------------------------------
 # Rotas
 # ------------------------------
@@ -81,7 +81,15 @@ def home():
 def login():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
+    ip = request.remote_addr
 
+    # ----------------- Proteção Brute Force -----------------
+    identifier = get_identifier(email=username, ip=ip)
+    blocked, seconds_left = check_block(identifier)
+    if blocked:
+        return f"Conta bloqueada. Tente novamente em {seconds_left//60} minutos.", 403
+
+    # ----------------- Verificação de credenciais -----------------
     query = (
         db.collection("usuarios")
         .where("username", "==", username)
@@ -93,6 +101,9 @@ def login():
     if user_doc:
         user_data = user_doc.to_dict()
         if check_password_hash(user_data.get("password_hash", ""), password):
+            # Login correto -> reset de tentativas
+            register_attempt(identifier, success=True)
+
             session.clear()
             session.permanent = True
             session["logged_in"] = True
@@ -103,6 +114,8 @@ def login():
             )
             return redirect(url_for("dashboard.dashboard"))
 
+    # Login incorreto -> registra tentativa falha
+    register_attempt(identifier, success=False)
     return "Usuário ou senha incorretos!", 401
 
 

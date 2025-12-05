@@ -232,6 +232,57 @@ def consulta():
         return redirect(url_for('auth.home'))
     return render_template('consulta.html', username=session.get('username'))
 
+@dashboard_bp.route('/buscar_fluxo', methods=['POST'])
+def buscar_fluxo():
+    data = request.get_json()
+    termo = data.get('q', '').strip().lower()
+    limit = data.get('limit', 20)
+    divulgador_filtro = data.get('divulgador')
+
+    colecao = db.collection('fluxo_pessoas')
+    query = colecao.order_by('nome')
+
+    resultados = []
+    docs = query.stream()
+    for doc in docs:
+        d = doc.to_dict()
+        if not d:
+            continue
+        if divulgador_filtro and d.get('divulgador') != divulgador_filtro:
+            continue
+        if termo and not any(termo in str(d.get(field, '')).lower()
+                             for field in ['nome', 'cpf', 'telefone_movel_1', 'telefone_movel_2', 'telefone_movel_3',
+                                           'email_1', 'email_2', 'email_3', 'orgao_nome', 'banco']):
+            continue
+
+        d['doc_id'] = doc.id
+        d['orgao_nome'] = d.get('orgao_nome', 'Desconhecido')
+        d['uf'] = d.get('uf', '-')
+        d['telefone'] = d.get('telefone_movel_1') or d.get('telefone_movel_2') or d.get('telefone_movel_3') or '-'
+        d['idade'] = d.get('idade', '-')
+        d['divulgador'] = d.get('divulgador', '-')
+
+        resultado_limpo = {
+            'doc_id': d.get('doc_id', ''),
+            'nome': d.get('nome', ''),
+            'cpf': d.get('cpf', ''),
+            'idade': d.get('idade', ''),
+            'orgao_nome': d.get('orgao_nome', ''),
+            'uf': d.get('uf', ''),
+            'banco': d.get('banco', '-'),
+            'telefone_movel_1': d.get('telefone_movel_1', '-'),
+            'telefone_movel_2': d.get('telefone_movel_2', '-'),
+            'telefone_movel_3': d.get('telefone_movel_3', '-'),
+            'divulgador': d.get('divulgador', ''),
+            'data_divulgacao': d.get('data_divulgacao', '-')
+        }
+        resultados.append(resultado_limpo)
+
+    clientes = resultados[:limit]
+    mais = len(resultados) > limit
+    return jsonify({'clientes': clientes, 'has_more': mais})
+
+
 # -------------------------------
 # Cliente individual
 # -------------------------------
@@ -306,3 +357,4 @@ def salvar_cliente():
             'tipo': 'servidor',
             'mensagem': str(e)
         }), 500
+

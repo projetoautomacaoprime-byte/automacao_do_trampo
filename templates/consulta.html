@@ -7,31 +7,40 @@
 
   <!-- CSS externo permitido na CSP -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/consulta.css') }}">
-
 </head>
+
 <body>
   <div class="page-wrapper">
 
     <div class="prime-container">
       <h2>Consulta de Pessoas</h2>
+
       <div class="search-area">
-        <input type="text" placeholder="Pesquisar por nome, CPF, telefone..." class="search-input">
-        <select class="search-select">
+
+        <!-- 🔥 IDs restaurados -->
+        <input id="busca_geral" type="text"
+               placeholder="Pesquisar por nome, CPF, telefone..."
+               class="search-input">
+
+        <select id="filtro_divulgador" class="search-select">
           <option value="">Todos os divulgadores</option>
           {% for d in divulgadores %}
           <option value="{{ d }}">{{ d }}</option>
           {% endfor %}
         </select>
-        <button class="search-btn">BUSCAR</button>
+
+        <button id="btnPesquisar" class="search-btn">BUSCAR</button>
       </div>
-      <div id="resultados">
-        <!-- Onde os clientes aparecerão -->
-        </div>
-        <button id="carregarMais" class="load-more-btn" style="display:none;">
-          Carregar Mais </button>
-        </div>
-      </div>
+
+      <!-- 🔥 container onde os cards aparecem -->
+      <div id="clientes-container"></div>
+
+      <button id="btnCarregarMais" class="load-more-btn" style="display:none;">
+        Carregar Mais
+      </button>
+
     </div>
+  </div>
 
 <!-- SCRIPT SEGURO COM NONCE -->
 <script nonce="{{ g.csp_nonce }}">
@@ -54,7 +63,7 @@ async function safeFetch(url, options = {}) {
 }
 
 // ======================================================
-// 🔒 CARD SEGURO (SEM innerHTML MALICIOSO)
+// 🔒 CARD SEGURO
 // ======================================================
 function criarSpan(label, valor) {
   const p = document.createElement("p");
@@ -116,7 +125,6 @@ function renderizarCard(c) {
   btnArea.appendChild(btnSalvar);
   div.appendChild(btnArea);
 
-  // add listeners SEM inline
   btnEditar.addEventListener("click", () => editarCliente(c.doc_id, btnEditar, btnSalvar));
   btnSalvar.addEventListener("click", () => salvarCliente(c.doc_id, btnEditar, btnSalvar));
 
@@ -195,7 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ======================================================
-// ✏ EDITAR / SALVAR (SEGURO)
+// ✏ EDITAR / SALVAR
 // ======================================================
 function editarCliente(id, btnEditar, btnSalvar) {
   const card = document.getElementById("card-" + id);
@@ -248,5 +256,6 @@ async function salvarCliente(id, btnEditar, btnSalvar) {
   }
 }
 </script>
+
 </body>
 </html>

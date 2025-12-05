@@ -17,7 +17,7 @@ def create_app():
     # === Importar e registrar blueprints ===
     from auth import auth_bp
     from dashboard import dashboard_bp
-
+    
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
 
