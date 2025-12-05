@@ -8,17 +8,144 @@
   <!-- CSS externo permitido na CSP -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-  <!-- CSS inline com NONCE -->
-  <style nonce="{{ g.csp_nonce }}">
-    body { font-family: Arial, sans-serif; padding: 20px; background: #fafafa; }
-    .container { max-width: 900px; margin: 0 auto; }
-    .search-row { display: flex; gap: 8px; margin-bottom: 15px; }
-    .search-row input { flex: 1; padding: 8px; font-size: 16px; }
-    .search-row button { padding: 8px 14px; cursor: pointer; }
-    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
-    .card p { margin: 4px 0; }
-    .btn-load { background: #007bff; color: white; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
-    .btn-load:disabled { background: #ccc; cursor: default; }
+  <style>
+    body {
+  font-family: Arial, sans-serif;
+  background: #f5f2ec;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.container {
+  width: 100%;
+  max-width: 900px;
+  height: 95vh;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 20px;
+  overflow: hidden;   
+}
+    
+#clientes-container {
+    max-height: calc(95vh - 220px);
+    overflow-y: auto;
+}
+
+#clientes-container::-webkit-scrollbar-thumb {
+    background: #d4a62a;
+    border-radius: 10px;
+}
+/* Caixa de busca */
+.search-box {
+  background: #3e4750;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  padding: 25px 20px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.search-box h2 {
+  color: #000;
+  margin-bottom: 15px;
+}
+
+.search-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.search-row input {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #d4a62a;
+  font-size: 15px;
+}
+
+.search-row select {
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 15px;
+}
+
+.search-row button {
+  background: linear-gradient(135deg, #d4a62a, #b88914);
+  border: none;
+  padding: 10px 24px;
+  font-weight: bold;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #000;
+}
+
+/* Área de resultados com scroll */
+#clientes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 15px;
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+#clientes-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+#clientes-container::-webkit-scrollbar-thumb {
+  background: #c9a227;
+  border-radius: 10px;
+}
+
+/* Cards */
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  font-size: 14px;
+}
+
+.card p {
+  margin: 3px 0;
+  text-align: center;
+}
+
+.card strong {
+  color: #000;
+}
+
+.btn-editar, 
+.btn-salvar {
+  background: #1e40af;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 22px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.btn-load {
+  background: #1e40af;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  cursor: pointer;
+  margin-top: 15px;
+}
+
   </style>
 </head>
 
