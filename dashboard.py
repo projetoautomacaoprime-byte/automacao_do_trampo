@@ -5,8 +5,7 @@ from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado
 from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
 from datetime import datetime
-from flask_wtf.csrf import CSRFProtect, generate_csrf
-from marshmallow import Schema, fields, ValidationError
+from flask_wtf.csrf import CSRFProtect, generate_csrf, validate_csrf
 import bleach
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -16,16 +15,6 @@ dashboard_bp = Blueprint("dashboard", __name__)
 # -------------------------------
 csrf = CSRFProtect()
 csrf.init_app(app)
-
-# -------------------------------
-# Schema para validar cliente
-# -------------------------------
-class ClienteSchema(Schema):
-    doc_id = fields.Str(required=True)
-    novo_telefone = fields.Str(allow_none=True)
-    data_divulgacao = fields.Str(allow_none=True)
-    status = fields.Str(allow_none=True)
-    observacoes = fields.Str(allow_none=True)
 
 # -------------------------------
 # Função para pegar config do usuário
@@ -98,6 +87,7 @@ def dashboard():
     else:
         df = pd.DataFrame()
 
+    # filtros
     saldo_filtro = request.args.get('saldo', None)
     uf_filtro = request.args.get('uf', None)
     orgao_filtro = request.args.get('orgao', None)
@@ -127,14 +117,12 @@ def dashboard():
     else:
         table_data = []
 
-    csrf_token = generate_csrf()
     return render_template(
         'dashboard.html',
         table_data=table_data,
         start=start,
         username=session.get('username'),
         exibidos=len(table_data),
-        csrf_token=csrf_token
     )
 
 # -------------------------------
@@ -155,7 +143,7 @@ def get_divulgadores_route():
     return jsonify(divulgadores), 200
 
 # -------------------------------
-# Atualiza dataframe via AJAX (seguro)
+# Atualiza dataframe via AJAX
 # -------------------------------
 @dashboard_bp.route('/atualiza_dataframe', methods=['POST'])
 @csrf.exempt
@@ -204,8 +192,9 @@ def atualiza_dataframe():
 
         filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
         paginated_df = filtered_df.iloc[start:start + limit].copy()
+
         paginated_df["parcela"] = paginated_df["parcela_exibir"]
-        paginated_df["saldo_devedor"] = filtered_df["saldo_devedor_float"].apply(format_brl)
+        paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
 
         clientes_json = paginated_df.to_dict(orient="records")
         clientes_json = adiciona_nome_taxa_orgao(clientes_json)
@@ -231,6 +220,7 @@ def consulta():
     if not session.get('logged_in'):
         return redirect(url_for('auth.home'))
     return render_template('consulta.html', username=session.get('username'))
+
 
 @dashboard_bp.route('/buscar_fluxo', methods=['POST'])
 def buscar_fluxo():
@@ -258,9 +248,7 @@ def buscar_fluxo():
         d['doc_id'] = doc.id
         d['orgao_nome'] = d.get('orgao_nome', 'Desconhecido')
         d['uf'] = d.get('uf', '-')
-        d['telefone'] = d.get('telefone_movel_1') or d.get('telefone_movel_2') or d.get('telefone_movel_3') or '-'
         d['idade'] = d.get('idade', '-')
-        d['divulgador'] = d.get('divulgador', '-')
 
         resultado_limpo = {
             'doc_id': d.get('doc_id', ''),
@@ -281,7 +269,6 @@ def buscar_fluxo():
     clientes = resultados[:limit]
     mais = len(resultados) > limit
     return jsonify({'clientes': clientes, 'has_more': mais})
-
 
 # -------------------------------
 # Cliente individual
@@ -312,43 +299,51 @@ def atualizar_fluxo(doc_id):
         return jsonify({"status": "erro", "msg": str(e)})
 
 # -------------------------------
-# Salvar cliente (seguro)
+# Salvar cliente (SEM SCHEMA)
 # -------------------------------
 @dashboard_bp.route('/salvar_cliente', methods=['POST'])
-@csrf.exempt
 def salvar_cliente():
     if not session.get('logged_in'):
         return jsonify({"status": "erro", "tipo": "auth", "mensagem": "Usuário não autenticado"}), 401
 
     try:
-        cliente_raw = request.json
+        # valida CSRF
+        token = request.headers.get("X-CSRFToken")
+        if not token:
+            return jsonify({"status": "erro", "mensagem": "Token CSRF ausente"}), 400
+
+        try:
+            validate_csrf(token)
+        except Exception:
+            return jsonify({"status": "erro", "mensagem": "CSRF inválido"}), 400
+
+        cliente_raw = request.get_json(silent=True)
         if not cliente_raw:
             return jsonify({
                 'status': 'erro',
                 'tipo': 'dados',
-                'mensagem': 'Nenhum dado recebido.'
+                'mensagem': 'Nenhum dado recebido ou JSON inválido.'
             }), 400
 
-        # Sanitizar
-        cliente_sanitized = {k: bleach.clean(str(v)) if isinstance(v, str) else v
-                             for k, v in cliente_raw.items()}
+        # Sanitiza strings
+        cliente = {
+            k: bleach.clean(str(v)) if isinstance(v, str) else v
+            for k, v in cliente_raw.items()
+        }
 
-        try:
-            cliente = ClienteSchema().load(cliente_sanitized)
-        except ValidationError as err:
-            return jsonify({'status': 'erro', 'tipo': 'dados', 'mensagem': err.messages}), 400
+        # valida doc_id
+        if not cliente.get("doc_id"):
+            return jsonify({"status": "erro", "mensagem": "doc_id obrigatório"}), 400
 
+        # adiciona divulgador e data
         cliente['divulgador'] = session.get('username', 'Desconhecido')
-        if not cliente.get('data_divulgacao'):
-            cliente['data_divulgacao'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        cliente['data_divulgacao'] = cliente.get('data_divulgacao') or \
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-        allowed_fields = ['doc_id', 'novo_telefone', 'data_divulgacao', 'status', 'observacoes']
-        update_data = {k: v for k, v in cliente.items() if k in allowed_fields}
+        # salva no Firestore
+        db.collection('fluxo_pessoas').document(cliente['doc_id']).set(cliente, merge=True)
 
-        doc_ref = db.collection('fluxo_pessoas').document(cliente['doc_id'])
-        doc_ref.set(update_data, merge=True)
-
-        return jsonify({'status': 'ok'})
+        return jsonify({'status': 'ok'}), 200
 
     except Exception as e:
         print("Erro geral do servidor:", e)
@@ -357,4 +352,3 @@ def salvar_cliente():
             'tipo': 'servidor',
             'mensagem': str(e)
         }), 500
-
