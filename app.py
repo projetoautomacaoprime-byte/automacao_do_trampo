@@ -5,6 +5,7 @@ from flask import g
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from config import app as flask_app
 from security import init_security_headers
+from consulta import consulta_bp  # corrigido
 
 # === Configurar logging ===
 logging.basicConfig(level=logging.INFO)
@@ -26,25 +27,22 @@ def create_app():
     from dashboard import dashboard_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
-
+    app.register_blueprint(consulta_bp)  # registrado corretamente
     return app
 
 
 app = create_app()
-
 
 # === Gerar NONCE antes de cada requisição para CSP ===
 @app.before_request
 def add_csp_nonce():
     g.csp_nonce = secrets.token_urlsafe(16)
 
-
 # === Handler global de CSRFError ===
 @app.errorhandler(CSRFError)
 def handle_csrf(e):
     logger.warning("CSRF token inválido: %s", e)
     return "Requisição inválida (CSRF token inválido)", 400
-
 
 # === Inserir CSP dinâmico na resposta ===
 @app.after_request
@@ -53,7 +51,7 @@ def apply_csp(response):
     csp = (
         "default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}'; "
-        "style-src 'self'; "  # removido unsafe-inline para produção
+        "style-src 'self'; "
         "img-src 'self' data: https:; "
         "font-src 'self' data: https:; "
         "connect-src 'self'; "
@@ -64,7 +62,6 @@ def apply_csp(response):
     )
     response.headers['Content-Security-Policy'] = csp
     return response
-
 
 # === Executar aplicação ===
 if __name__ == '__main__':
