@@ -4,34 +4,28 @@ from config import db, app
 from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado, format_brl
 from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
-from flask_wtf.csrf import CSRFProtect
 import bleach
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
-# -------------------------------
-# Ativa CSRF globalmente
-# -------------------------------
-csrf = CSRFProtect()
-csrf.init_app(app)
-
-# -------------------------------
-# Função para pegar config do usuário
-# -------------------------------
+# -------------------------------------
+# Utils
+# -------------------------------------
 def get_user_sheet_config(username):
     if not username:
         return None
+
     ref = db.collection("planilhas_usuarios").document(username).get()
     if not ref.exists:
         return None
+
     cfg = ref.to_dict()
     if "sheet_url" not in cfg or "sheet_name" not in cfg:
         return None
+
     return {"sheet_url": cfg["sheet_url"], "sheet_name": cfg["sheet_name"]}
 
-# -------------------------------
-# Função para adicionar nome e taxa do órgão
-# -------------------------------
+
 def adiciona_nome_taxa_orgao(table_data):
     orgaos_docs = db.collection("Orgãos_taxa_cod").stream()
     orgaos_lista = [doc.to_dict() for doc in orgaos_docs]
@@ -42,10 +36,9 @@ def adiciona_nome_taxa_orgao(table_data):
         cliente["orgao_taxa_formatada"] = "—"
 
         for orgao in orgaos_lista:
-            codigos = orgao.get("codigos", [])
-            if codigo_orgao in codigos:
+            if codigo_orgao in orgao.get("codigos", []):
                 cliente["orgao_nome"] = orgao.get("nome", "Não informado").upper()
-                taxa = orgao.get("taxa", None)
+                taxa = orgao.get("taxa")
                 if taxa:
                     try:
                         taxa_clean = str(taxa).replace(",", ".").replace("%", "").strip()
@@ -55,9 +48,50 @@ def adiciona_nome_taxa_orgao(table_data):
                 break
     return table_data
 
-# -------------------------------
-# Dashboard principal
-# -------------------------------
+
+def preparar_dataframe(df):
+    if df.empty:
+        return df
+
+    df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
+
+    for col in ["parcela", "prazo", "idade"]:
+        if col in df.columns:
+            df[col] = df[col].apply(parse_brl)
+
+    df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
+    df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
+    return df
+
+
+def gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf):
+    cpf_clean = str(cpf or "").replace(".", "").replace("-", "").strip()
+    banco_clean = str(banco or "").strip()
+
+    # prazo sempre inteiro
+    prazo_clean = str(prazo or "").strip()
+
+    # PARCELA deve manter vírgula e ponto (formato BR)
+    parcela_clean = str(parcela or "").strip()
+
+    # evita doc_id vazio
+    if parcela_clean == "":
+        parcela_clean = "0"
+
+    uf_clean = str(uf or "").strip()
+
+    return f"{cpf_clean}_{banco_clean}_{prazo_clean}_{parcela_clean}_{uf_clean}".upper()
+
+
+
+
+def gerar_doc_id(row):
+    return gerar_doc_id_from_fields(row.get("cpf"), row.get("banco"), row.get("prazo"), row.get("parcela"), row.get("uf"))
+
+
+# -------------------------------------
+# ROTAS
+# -------------------------------------
 @dashboard_bp.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
@@ -65,32 +99,22 @@ def dashboard():
 
     username = session.get("username")
     config = get_user_sheet_config(username)
-    SHEET_URL_USER = config.get('sheet_url') if config else None
-    SHEET_NAME_USER = config.get('sheet_name') if config else None
 
-    start = request.args.get('start', 0)
+    sheet_url = config.get("sheet_url") if config else None
+    sheet_name = config.get("sheet_name") if config else None
+
     try:
-        start = int(start)
+        start = int(request.args.get('start', 0))
     except:
         start = 0
     limit = 10
 
-    df = read_sheet_to_dataframe(SHEET_URL_USER, SHEET_NAME_USER)
-    if not df.empty:
-        df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-        for col in ["parcela", "prazo", "idade"]:
-            if col in df.columns:
-                df[col] = df[col].apply(parse_brl)
-        df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
-        df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
-    else:
-        df = pd.DataFrame()
+    df = read_sheet_to_dataframe(sheet_url, sheet_name)
+    df = preparar_dataframe(df)
 
-    # filtros
-    saldo_filtro = request.args.get('saldo', None)
-    uf_filtro = request.args.get('uf', None)
-    orgao_filtro = request.args.get('orgao', None)
-
+    saldo_filtro = request.args.get('saldo')
+    uf_filtro = request.args.get('uf')
+    orgao_filtro = request.args.get('orgao')
     orgaos_fire = carregar_orgaos()
 
     filtered_df = aplicar_filtros(
@@ -102,76 +126,63 @@ def dashboard():
     )
 
     if not filtered_df.empty:
-        filtered_df['doc_id'] = filtered_df.apply(
-            lambda row: f"{row.get('cpf','')}_{row.get('banco','')}_{int(row.get('prazo',0))}_{int(row.get('parcela',0))}_{row.get('uf','')}".replace(" ", "").upper(),
-            axis=1
-        )
-        filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
-        paginated_df = filtered_df.iloc[start:start + limit].copy()
-        paginated_df["parcela"] = paginated_df["parcela_exibir"]
-        paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
+        filtered_df["doc_id"] = filtered_df.apply(gerar_doc_id, axis=1)
+        filtered_df = filtered_df.drop_duplicates(subset=["doc_id"])
 
-        table_data = paginated_df.to_dict(orient="records")
-        table_data = adiciona_nome_taxa_orgao(table_data)
+        paginated = filtered_df.iloc[start:start + limit].copy()
+        paginated["parcela"] = paginated["parcela_exibir"]
+        paginated["saldo_devedor"] = paginated["saldo_devedor_float"].apply(format_brl)
+
+        table_data = adiciona_nome_taxa_orgao(paginated.to_dict(orient="records"))
     else:
         table_data = []
 
     return render_template(
-        'dashboard.html',
+        "dashboard.html",
         table_data=table_data,
         start=start,
-        username=session.get('username'),
-        exibidos=len(table_data),
+        username=username,
+        exibidos=len(table_data)
     )
 
-# -------------------------------
-# Rotas de órgãos e divulgadores
-# -------------------------------
+
 @dashboard_bp.route("/get_orgaos")
 def get_orgaos_route():
     orgaos = carregar_orgaos()
-    lista = [
-        {"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]}
-        for o in orgaos
-    ]
-    return jsonify(lista), 200
+    return jsonify([{"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]}]), 200
+
 
 @dashboard_bp.route("/get_divulgadores")
 def get_divulgadores_route():
-    divulgadores = get_divulgadores_list()
-    return jsonify(divulgadores), 200
+    return jsonify(get_divulgadores_list()), 200
 
-# -------------------------------
-# Atualiza dataframe via AJAX
-# -------------------------------
+
+# -------------------------------------
+# AJAX: Atualizar DataFrame
+# -------------------------------------
 @dashboard_bp.route('/atualiza_dataframe', methods=['POST'])
-@csrf.exempt
 def atualiza_dataframe():
     if not session.get('logged_in'):
         return jsonify({"success": False, "error": "Usuário não autenticado"}), 401
+
     try:
         data = request.get_json()
-        start = int(data.get('start', 0))
-        limit = int(data.get('limit', 10))
+        start = int(data.get("start", 0))
+        limit = int(data.get("limit", 10))
         username = session.get("username")
+
         config = get_user_sheet_config(username)
         if not config:
             return jsonify({"success": False, "error": "Planilha do usuário não configurada"}), 400
 
-        df = read_sheet_to_dataframe(config.get("sheet_url"), config.get("sheet_name"))
-        if not df.empty:
-            df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-            for col in ["parcela", "prazo", "idade"]:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_brl)
-            df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
-            df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
+        df = read_sheet_to_dataframe(config["sheet_url"], config["sheet_name"])
+        df = preparar_dataframe(df)
 
         orgaos_fire = carregar_orgaos()
 
-        uf_filtro = bleach.clean(data.get('uf') or "")
-        orgao_filtro = bleach.clean(data.get('orgao') or "")
-        saldo_filtro = bleach.clean(str(data.get('saldo') or ""))
+        uf_filtro = bleach.clean(data.get("uf") or "")
+        orgao_filtro = bleach.clean(data.get("orgao") or "")
+        saldo_filtro = bleach.clean(str(data.get("saldo") or ""))
 
         filtered_df = aplicar_filtros(
             df,
@@ -184,19 +195,14 @@ def atualiza_dataframe():
         if filtered_df.empty:
             return jsonify({"clientes": [], "total_count": 0, "next_start": 0})
 
-        filtered_df['doc_id'] = filtered_df.apply(
-            lambda row: f"{row.get('cpf','')}_{row.get('banco','')}_{int(row.get('prazo',0))}_{int(row.get('parcela',0))}_{row.get('uf','')}".replace(" ", "").upper(),
-            axis=1
-        )
+        filtered_df["doc_id"] = filtered_df.apply(gerar_doc_id, axis=1)
+        filtered_df = filtered_df.drop_duplicates(subset=["doc_id"])
 
-        filtered_df = filtered_df.drop_duplicates(subset=['doc_id'], keep='first')
-        paginated_df = filtered_df.iloc[start:start + limit].copy()
+        paginated = filtered_df.iloc[start:start + limit].copy()
+        paginated["parcela"] = paginated["parcela_exibir"]
+        paginated["saldo_devedor"] = paginated["saldo_devedor_float"].apply(format_brl)
 
-        paginated_df["parcela"] = paginated_df["parcela_exibir"]
-        paginated_df["saldo_devedor"] = paginated_df["saldo_devedor_float"].apply(format_brl)
-
-        clientes_json = paginated_df.to_dict(orient="records")
-        clientes_json = adiciona_nome_taxa_orgao(clientes_json)
+        clientes_json = adiciona_nome_taxa_orgao(paginated.to_dict(orient="records"))
 
         next_start = start + limit
         if next_start >= len(filtered_df):
@@ -210,3 +216,61 @@ def atualiza_dataframe():
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# -------------------------------------
+# Salvar/Divulgar cliente (criação via Dashboard)
+# -------------------------------------
+@dashboard_bp.route("/salvar_cliente_dashboard", methods=["POST"])
+def salvar_cliente_dashboard():
+    """
+    Rota usada pelo dashboard para salvar/divulgar clientes no fluxo_pessoas.
+    Agora salva TODAS as informações que vierem do cliente.
+    """
+    if not session.get('logged_in'):
+        return jsonify({"status": "erro", "mensagem": "Usuário não autenticado"}), 401
+
+    try:
+        raw = request.get_json() or {}
+
+        # Converte qualquer coisa para string e sanitiza
+        def safe_clean(value):
+            if value is None:
+                return ""
+            return bleach.clean(str(value)).strip()
+
+        # Campos principais para geração do doc_id — NÃO mudar
+        cpf = safe_clean(raw.get("cpf")).replace(".", "").replace("-", "")
+        banco = safe_clean(raw.get("banco"))
+        prazo = safe_clean(raw.get("prazo"))
+        parcela = safe_clean(raw.get("parcela"))
+        uf = safe_clean(raw.get("uf"))
+
+        # telefone novo digitado
+        novo_tel = safe_clean(raw.get("novo_telefone"))
+
+        # gera o doc_id padronizado igual ao DataFrame
+        doc_id = gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf)
+        doc_ref = db.collection("fluxo_pessoas").document(doc_id)
+
+        # -----------------------------
+        # SALVA TODOS OS CAMPOS RECEBIDOS
+        # -----------------------------
+        payload = {}
+
+        for key, value in raw.items():
+            payload[key] = safe_clean(value)
+
+        # adiciona o novo telefone (se existir)
+        if novo_tel:
+            payload["novo_telefone"] = novo_tel
+
+        # salva tudo no Firestore
+        doc_ref.set(payload, merge=True)
+
+        return jsonify({"status": "ok", "doc_id": doc_id}), 200
+
+    except Exception as e:
+        return jsonify({"status": "erro", "mensagem": str(e)}), 500
+
+

@@ -181,7 +181,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function salvarCliente(cliente) {
         try {
-            const res = await postCSRF('/salvar_cliente', cliente);
+            const res = await postCSRF('/salvar_cliente_dashboard', cliente);
             const data = await res.json();
             if (data.status === 'ok') {
                 alert('✅ Cliente salvo com sucesso!');
