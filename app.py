@@ -1,9 +1,17 @@
-from config import app as flask_app
-from flask import g
-from flask_wtf.csrf import CSRFProtect, validate_csrf, CSRFError
-from security import init_security_headers
+import os
 import secrets
+import logging
+from flask import g
+from flask_wtf.csrf import CSRFProtect, CSRFError
+from config import app as flask_app
+from security import init_security_headers
 
+# === Configurar logging ===
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info("Inicializando aplicação Flask...")
+
+# === CSRF global ===
 csrf = CSRFProtect()
 
 def create_app():
@@ -25,20 +33,27 @@ def create_app():
 app = create_app()
 
 
-# === Gerar NONCE ANTES de cada requisição ===
+# === Gerar NONCE antes de cada requisição para CSP ===
 @app.before_request
 def add_csp_nonce():
     g.csp_nonce = secrets.token_urlsafe(16)
 
 
-# === Inserir CSP DINÂMICO NA RESPOSTA ===
+# === Handler global de CSRFError ===
+@app.errorhandler(CSRFError)
+def handle_csrf(e):
+    logger.warning("CSRF token inválido: %s", e)
+    return "Requisição inválida (CSRF token inválido)", 400
+
+
+# === Inserir CSP dinâmico na resposta ===
 @app.after_request
 def apply_csp(response):
     nonce = g.get("csp_nonce", "")
     csp = (
         "default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}'; "
-        "style-src 'self' 'unsafe-inline'; "
+        "style-src 'self'; "  # removido unsafe-inline para produção
         "img-src 'self' data: https:; "
         "font-src 'self' data: https:; "
         "connect-src 'self'; "
@@ -51,5 +66,8 @@ def apply_csp(response):
     return response
 
 
+# === Executar aplicação ===
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    logger.info("Aplicação rodando em modo debug: %s", debug_mode)
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode)
