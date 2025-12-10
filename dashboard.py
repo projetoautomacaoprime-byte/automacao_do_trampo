@@ -149,7 +149,8 @@ def dashboard():
 @dashboard_bp.route("/get_orgaos")
 def get_orgaos_route():
     orgaos = carregar_orgaos()
-    return jsonify([{"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]}]), 200
+    return jsonify([{"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]} for o in orgaos]), 200
+
 
 
 @dashboard_bp.route("/get_divulgadores")
