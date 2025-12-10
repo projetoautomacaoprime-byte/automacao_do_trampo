@@ -1,6 +1,6 @@
 import pandas as pd
 from flask import Blueprint, session, redirect, url_for, request, render_template, jsonify
-from config import db, app
+from config import db
 from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado, format_brl
 from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
@@ -67,26 +67,23 @@ def preparar_dataframe(df):
 def gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf):
     cpf_clean = str(cpf or "").replace(".", "").replace("-", "").strip()
     banco_clean = str(banco or "").strip()
-
-    # prazo sempre inteiro
     prazo_clean = str(prazo or "").strip()
-
-    # PARCELA deve manter vírgula e ponto (formato BR)
     parcela_clean = str(parcela or "").strip()
-
-    # evita doc_id vazio
     if parcela_clean == "":
         parcela_clean = "0"
-
     uf_clean = str(uf or "").strip()
 
     return f"{cpf_clean}_{banco_clean}_{prazo_clean}_{parcela_clean}_{uf_clean}".upper()
 
 
-
-
 def gerar_doc_id(row):
-    return gerar_doc_id_from_fields(row.get("cpf"), row.get("banco"), row.get("prazo"), row.get("parcela"), row.get("uf"))
+    return gerar_doc_id_from_fields(
+        row.get("cpf"),
+        row.get("banco"),
+        row.get("prazo"),
+        row.get("parcela"),
+        row.get("uf")
+    )
 
 
 # -------------------------------------
@@ -104,17 +101,20 @@ def dashboard():
     sheet_name = config.get("sheet_name") if config else None
 
     try:
-        start = int(request.args.get('start', 0))
+        start_raw = request.args.get('start', 0)
+        start = int(bleach.clean(str(start_raw)))
     except:
         start = 0
+
     limit = 10
 
     df = read_sheet_to_dataframe(sheet_url, sheet_name)
     df = preparar_dataframe(df)
 
-    saldo_filtro = request.args.get('saldo')
-    uf_filtro = request.args.get('uf')
-    orgao_filtro = request.args.get('orgao')
+    saldo_filtro = bleach.clean(request.args.get('saldo') or "")
+    uf_filtro = bleach.clean(request.args.get('uf') or "")
+    orgao_filtro = bleach.clean(request.args.get('orgao') or "")
+
     orgaos_fire = carregar_orgaos()
 
     filtered_df = aplicar_filtros(
@@ -167,11 +167,13 @@ def atualiza_dataframe():
 
     try:
         data = request.get_json()
-        start = int(data.get("start", 0))
-        limit = int(data.get("limit", 10))
-        username = session.get("username")
 
+        start = int(bleach.clean(str(data.get("start", 0))))
+        limit = int(bleach.clean(str(data.get("limit", 10))))
+
+        username = session.get("username")
         config = get_user_sheet_config(username)
+
         if not config:
             return jsonify({"success": False, "error": "Planilha do usuário não configurada"}), 400
 
@@ -223,54 +225,38 @@ def atualiza_dataframe():
 # -------------------------------------
 @dashboard_bp.route("/salvar_cliente_dashboard", methods=["POST"])
 def salvar_cliente_dashboard():
-    """
-    Rota usada pelo dashboard para salvar/divulgar clientes no fluxo_pessoas.
-    Agora salva TODAS as informações que vierem do cliente.
-    """
     if not session.get('logged_in'):
         return jsonify({"status": "erro", "mensagem": "Usuário não autenticado"}), 401
 
     try:
         raw = request.get_json() or {}
 
-        # Converte qualquer coisa para string e sanitiza
         def safe_clean(value):
             if value is None:
                 return ""
             return bleach.clean(str(value)).strip()
 
-        # Campos principais para geração do doc_id — NÃO mudar
         cpf = safe_clean(raw.get("cpf")).replace(".", "").replace("-", "")
         banco = safe_clean(raw.get("banco"))
         prazo = safe_clean(raw.get("prazo"))
         parcela = safe_clean(raw.get("parcela"))
         uf = safe_clean(raw.get("uf"))
 
-        # telefone novo digitado
         novo_tel = safe_clean(raw.get("novo_telefone"))
 
-        # gera o doc_id padronizado igual ao DataFrame
         doc_id = gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf)
         doc_ref = db.collection("fluxo_pessoas").document(doc_id)
 
-        # -----------------------------
-        # SALVA TODOS OS CAMPOS RECEBIDOS
-        # -----------------------------
         payload = {}
-
         for key, value in raw.items():
             payload[key] = safe_clean(value)
 
-        # adiciona o novo telefone (se existir)
         if novo_tel:
             payload["novo_telefone"] = novo_tel
 
-        # salva tudo no Firestore
         doc_ref.set(payload, merge=True)
 
         return jsonify({"status": "ok", "doc_id": doc_id}), 200
 
     except Exception as e:
         return jsonify({"status": "erro", "mensagem": str(e)}), 500
-
-
