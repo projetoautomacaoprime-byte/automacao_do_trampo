@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def get_divulgadores_list():
     """
     Busca lista simples de nomes na coleção 'divulgadores'.
@@ -18,8 +19,9 @@ def get_divulgadores_list():
             data = doc.to_dict() or {}
             nome = data.get("nome")
             if nome:
-                divulgadores.append(nome)
+                divulgadores.append(nome.strip())  # remove espaços acidentais
 
+        logger.info(f"{len(divulgadores)} divulgadores encontrados na coleção 'divulgadores'")
         return divulgadores
 
     except Exception as e:
@@ -37,11 +39,12 @@ def get_divulgadores_flask():
         nomes = []
         for doc in docs:
             data = doc.to_dict() or {}
-            nome = data.get('nome') or data.get('username')
+            nome = (data.get('nome') or data.get('username') or "").strip()
             if nome:
                 nomes.append(nome)
 
         nomes = sorted(set(nomes))  # remove duplicados
+        logger.info(f"{len(nomes)} divulgadores encontrados na coleção 'usuarios'")
 
         return jsonify(nomes), 200
 
