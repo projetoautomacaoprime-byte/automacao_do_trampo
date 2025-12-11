@@ -132,7 +132,7 @@ function renderizarCard(c) {
 }
 
 // ======================================================
-// 🔍 BUSCA (SEGURO)
+//  BUSCA — CORRETA E SEM ERROS
 // ======================================================
 document.addEventListener("DOMContentLoaded", () => {
   const inputBusca = document.getElementById("busca_geral");
@@ -145,6 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastDocId = null;
   let carregando = false;
 
+  // 🔍 função principal de busca
   async function buscar(reset = false) {
     if (carregando) return;
     carregando = true;
@@ -152,6 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (reset) {
       clientesContainer.innerHTML = "";
       lastDocId = null;
+      btnCarregarMais.style.display = "none";   // <-- correto aqui
     }
 
     const payload = {
@@ -176,8 +178,14 @@ document.addEventListener("DOMContentLoaded", () => {
         btnCarregarMais.style.display = "none";
       } else {
         clientes.forEach(c => clientesContainer.appendChild(renderizarCard(c)));
+
         lastDocId = clientes.at(-1)?.doc_id || null;
-        btnCarregarMais.style.display = clientes.length < 20 ? "none" : "inline-block";
+
+        // 👇 Só mostra se tiver exatamente 20 e se existe busca
+        btnCarregarMais.style.display =
+          clientes.length === 20 && (termoAtual || filtroDivulgador.value)
+            ? "inline-block"
+            : "none";
       }
 
     } catch {
@@ -187,6 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
     carregando = false;
   }
 
+  // 🔎 botões e eventos
   btnPesquisar.addEventListener("click", () => {
     termoAtual = inputBusca.value.trim();
     buscar(true);
@@ -199,7 +208,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  btnCarregarMais.addEventListener("click", () => buscar(false));
+  // 🔥 corrigido — só 1 eventListener, com proteção de busca
+  btnCarregarMais.addEventListener("click", () => {
+    if (!termoAtual && !filtroDivulgador.value) return;
+    buscar(false);
+  });
 });
 
 // ======================================================

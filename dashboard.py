@@ -5,7 +5,8 @@ from sheets import read_sheet_to_dataframe, parse_brl, calcular_valor_financiado
 from filters import aplicar_filtros, carregar_orgaos
 from divulgadores import get_divulgadores_list
 import bleach
-
+from security import sanitize_doc_id, sanitize_query_param, sanitize_username
+import re
 dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------------
@@ -66,14 +67,13 @@ def preparar_dataframe(df):
 
 def gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf):
     cpf_clean = str(cpf or "").replace(".", "").replace("-", "").strip()
-    banco_clean = str(banco or "").strip()
+    banco_clean = re.sub(r'[^A-Za-z0-9]', '', str(banco or ""))  # remove tudo que não é letra/número
     prazo_clean = str(prazo or "").strip()
-    parcela_clean = str(parcela or "").strip()
-    if parcela_clean == "":
-        parcela_clean = "0"
-    uf_clean = str(uf or "").strip()
+    parcela_clean = str(parcela or "0").replace(".", "").replace(",", "")
+    uf_clean = re.sub(r'[^A-Za-z0-9]', '', str(uf or ""))  # remove caracteres inválidos
 
     return f"{cpf_clean}_{banco_clean}_{prazo_clean}_{parcela_clean}_{uf_clean}".upper()
+
 
 
 def gerar_doc_id(row):
@@ -111,9 +111,9 @@ def dashboard():
     df = read_sheet_to_dataframe(sheet_url, sheet_name)
     df = preparar_dataframe(df)
 
-    saldo_filtro = bleach.clean(request.args.get('saldo') or "")
-    uf_filtro = bleach.clean(request.args.get('uf') or "")
-    orgao_filtro = bleach.clean(request.args.get('orgao') or "")
+    saldo_filtro = sanitize_query_param(request.args.get('saldo') or "")
+    uf_filtro = sanitize_query_param(request.args.get('uf') or "")
+    orgao_filtro = sanitize_query_param(request.args.get('orgao') or "")
 
     orgaos_fire = carregar_orgaos()
 
@@ -183,9 +183,9 @@ def atualiza_dataframe():
 
         orgaos_fire = carregar_orgaos()
 
-        uf_filtro = bleach.clean(data.get("uf") or "")
-        orgao_filtro = bleach.clean(data.get("orgao") or "")
-        saldo_filtro = bleach.clean(str(data.get("saldo") or ""))
+        uf_filtro = sanitize_query_param(data.get("uf") or "")
+        orgao_filtro = sanitize_query_param(data.get("orgao") or "")
+        saldo_filtro = sanitize_query_param(str(data.get("saldo") or ""))
 
         filtered_df = aplicar_filtros(
             df,
@@ -246,7 +246,10 @@ def salvar_cliente_dashboard():
         novo_tel = safe_clean(raw.get("novo_telefone"))
 
         doc_id = gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf)
+        doc_id = sanitize_doc_id(doc_id)  # <-- valida e garante segurança
         doc_ref = db.collection("fluxo_pessoas").document(doc_id)
+
+        
 
         payload = {}
         for key, value in raw.items():

@@ -4,7 +4,8 @@ from flask import request, g
 from datetime import datetime, timedelta, timezone
 from firebase_admin import firestore
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
-
+import re
+from flask import abort
 # ----------------- CSP EXISTENTE -----------------
 CSP_TEMPLATE = (
     "default-src 'self'; "
@@ -175,3 +176,43 @@ def register_attempt(identifier, success=False):
 
     except Exception as e:
         print("Erro register_attempt:", e)
+
+# ----------------- SANITIZAÇÃO DE INPUTS -----------------
+
+def sanitize_doc_id(doc_id: str) -> str:
+    """
+    Sanitiza doc_id vindo do usuário.
+    Permite apenas letras, números, hífen e underline.
+    """
+    if not isinstance(doc_id, str):
+        abort(400, "doc_id inválido")
+    
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", doc_id):
+        abort(400, "doc_id contém caracteres inválidos")
+    
+    return doc_id
+
+
+def sanitize_username(username: str) -> str:
+    """
+    Sanitiza username do login.
+    Permite letras, números, underscore e ponto.
+    """
+    if not isinstance(username, str):
+        abort(400, "username inválido")
+    
+    if not re.fullmatch(r"[A-Za-z0-9_.]+", username):
+        abort(400, "username contém caracteres inválidos")
+    
+    return username
+
+
+def sanitize_query_param(value: str) -> str:
+    """
+    Sanitiza parâmetros de query string (UF, órgão, saldo...).
+    Remove caracteres perigosos.
+    """
+    if not isinstance(value, str):
+        return ""
+    
+    return re.sub(r"[^A-Za-z0-9\s_-]", "", value)
