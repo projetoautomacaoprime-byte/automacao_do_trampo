@@ -7,6 +7,8 @@ from divulgadores import get_divulgadores_list
 import bleach
 from security import sanitize_doc_id, sanitize_query_param, sanitize_username
 import re
+from datetime import datetime
+
 dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------------
@@ -15,27 +17,22 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def get_user_sheet_config(username):
     if not username:
         return None
-
     ref = db.collection("planilhas_usuarios").document(username).get()
     if not ref.exists:
         return None
-
     cfg = ref.to_dict()
     if "sheet_url" not in cfg or "sheet_name" not in cfg:
         return None
-
     return {"sheet_url": cfg["sheet_url"], "sheet_name": cfg["sheet_name"]}
 
 
 def adiciona_nome_taxa_orgao(table_data):
     orgaos_docs = db.collection("Orgãos_taxa_cod").stream()
     orgaos_lista = [doc.to_dict() for doc in orgaos_docs]
-
     for cliente in table_data:
         codigo_orgao = str(cliente.get("orgao", "")).strip()
         cliente["orgao_nome"] = "Não informado"
         cliente["orgao_taxa_formatada"] = "—"
-
         for orgao in orgaos_lista:
             if codigo_orgao in orgao.get("codigos", []):
                 cliente["orgao_nome"] = orgao.get("nome", "Não informado").upper()
@@ -53,13 +50,10 @@ def adiciona_nome_taxa_orgao(table_data):
 def preparar_dataframe(df):
     if df.empty:
         return df
-
     df.columns = df.columns.str.strip().str.replace(" ", "_").str.lower()
-
     for col in ["parcela", "prazo", "idade"]:
         if col in df.columns:
             df[col] = df[col].apply(parse_brl)
-
     df["saldo_devedor_float"] = df.apply(calcular_valor_financiado, axis=1)
     df["parcela_exibir"] = (df["parcela"] / 100).apply(format_brl)
     return df
@@ -67,13 +61,11 @@ def preparar_dataframe(df):
 
 def gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf):
     cpf_clean = str(cpf or "").replace(".", "").replace("-", "").strip()
-    banco_clean = re.sub(r'[^A-Za-z0-9]', '', str(banco or ""))  # remove tudo que não é letra/número
+    banco_clean = re.sub(r'[^A-Za-z0-9]', '', str(banco or ""))
     prazo_clean = str(prazo or "").strip()
     parcela_clean = str(parcela or "0").replace(".", "").replace(",", "")
-    uf_clean = re.sub(r'[^A-Za-z0-9]', '', str(uf or ""))  # remove caracteres inválidos
-
+    uf_clean = re.sub(r'[^A-Za-z0-9]', '', str(uf or ""))
     return f"{cpf_clean}_{banco_clean}_{prazo_clean}_{parcela_clean}_{uf_clean}".upper()
-
 
 
 def gerar_doc_id(row):
@@ -92,11 +84,22 @@ def gerar_doc_id(row):
 @dashboard_bp.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
+        try:
+            db.collection("logs_criticos").document().set({
+                "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "event_type": "erro_acesso",
+                "username": session.get("username"),
+                "rota": "/dashboard",
+                "acao": "tentativa_sem_login",
+                "ip": request.remote_addr,
+                "user_agent": request.headers.get("User-Agent")
+            })
+        except Exception as e:
+            print(f"Erro ao registrar log: {e}")
         return redirect(url_for('auth.home'))
 
     username = session.get("username")
     config = get_user_sheet_config(username)
-
     sheet_url = config.get("sheet_url") if config else None
     sheet_name = config.get("sheet_name") if config else None
 
@@ -128,11 +131,9 @@ def dashboard():
     if not filtered_df.empty:
         filtered_df["doc_id"] = filtered_df.apply(gerar_doc_id, axis=1)
         filtered_df = filtered_df.drop_duplicates(subset=["doc_id"])
-
         paginated = filtered_df.iloc[start:start + limit].copy()
         paginated["parcela"] = paginated["parcela_exibir"]
         paginated["saldo_devedor"] = paginated["saldo_devedor_float"].apply(format_brl)
-
         table_data = adiciona_nome_taxa_orgao(paginated.to_dict(orient="records"))
     else:
         table_data = []
@@ -152,7 +153,6 @@ def get_orgaos_route():
     return jsonify([{"nome": o["nome"], "codigos": o["codigos"], "ativo": o["ativo"]} for o in orgaos]), 200
 
 
-
 @dashboard_bp.route("/get_divulgadores")
 def get_divulgadores_route():
     return jsonify(get_divulgadores_list()), 200
@@ -164,23 +164,32 @@ def get_divulgadores_route():
 @dashboard_bp.route('/atualiza_dataframe', methods=['POST'])
 def atualiza_dataframe():
     if not session.get('logged_in'):
+        try:
+            db.collection("logs_criticos").document().set({
+                "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "event_type": "erro_acesso",
+                "username": session.get("username"),
+                "rota": "/atualiza_dataframe",
+                "acao": "tentativa_sem_login",
+                "ip": request.remote_addr,
+                "user_agent": request.headers.get("User-Agent")
+            })
+        except Exception as e:
+            print(f"Erro ao registrar log: {e}")
         return jsonify({"success": False, "error": "Usuário não autenticado"}), 401
 
     try:
         data = request.get_json()
-
         start = int(bleach.clean(str(data.get("start", 0))))
         limit = int(bleach.clean(str(data.get("limit", 10))))
 
         username = session.get("username")
         config = get_user_sheet_config(username)
-
         if not config:
             return jsonify({"success": False, "error": "Planilha do usuário não configurada"}), 400
 
         df = read_sheet_to_dataframe(config["sheet_url"], config["sheet_name"])
         df = preparar_dataframe(df)
-
         orgaos_fire = carregar_orgaos()
 
         uf_filtro = sanitize_query_param(data.get("uf") or "")
@@ -200,11 +209,9 @@ def atualiza_dataframe():
 
         filtered_df["doc_id"] = filtered_df.apply(gerar_doc_id, axis=1)
         filtered_df = filtered_df.drop_duplicates(subset=["doc_id"])
-
         paginated = filtered_df.iloc[start:start + limit].copy()
         paginated["parcela"] = paginated["parcela_exibir"]
         paginated["saldo_devedor"] = paginated["saldo_devedor_float"].apply(format_brl)
-
         clientes_json = adiciona_nome_taxa_orgao(paginated.to_dict(orient="records"))
 
         next_start = start + limit
@@ -227,6 +234,18 @@ def atualiza_dataframe():
 @dashboard_bp.route("/salvar_cliente_dashboard", methods=["POST"])
 def salvar_cliente_dashboard():
     if not session.get('logged_in'):
+        try:
+            db.collection("logs_criticos").document().set({
+                "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "event_type": "erro_acesso",
+                "username": session.get("username"),
+                "rota": "/salvar_cliente_dashboard",
+                "acao": "tentativa_sem_login",
+                "ip": request.remote_addr,
+                "user_agent": request.headers.get("User-Agent")
+            })
+        except Exception as e:
+            print(f"Erro ao registrar log: {e}")
         return jsonify({"status": "erro", "mensagem": "Usuário não autenticado"}), 401
 
     try:
@@ -242,23 +261,31 @@ def salvar_cliente_dashboard():
         prazo = safe_clean(raw.get("prazo"))
         parcela = safe_clean(raw.get("parcela"))
         uf = safe_clean(raw.get("uf"))
-
         novo_tel = safe_clean(raw.get("novo_telefone"))
 
         doc_id = gerar_doc_id_from_fields(cpf, banco, prazo, parcela, uf)
-        doc_id = sanitize_doc_id(doc_id)  # <-- valida e garante segurança
+        doc_id = sanitize_doc_id(doc_id)
         doc_ref = db.collection("fluxo_pessoas").document(doc_id)
 
-        
-
-        payload = {}
-        for key, value in raw.items():
-            payload[key] = safe_clean(value)
-
+        payload = {key: safe_clean(value) for key, value in raw.items()}
         if novo_tel:
             payload["novo_telefone"] = novo_tel
 
         doc_ref.set(payload, merge=True)
+
+        try:
+            log_ref = db.collection("logs_criticos").document()
+            log_ref.set({
+                "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "event_type": "alteracao_lead",
+                "username": session.get("username"),
+                "doc_id": doc_id,
+                "acao": "criado/atualizado",
+                "ip": request.remote_addr,
+                "user_agent": request.headers.get("User-Agent")
+            })
+        except Exception as e:
+            print(f"Erro ao registrar log: {e}")
 
         return jsonify({"status": "ok", "doc_id": doc_id}), 200
 

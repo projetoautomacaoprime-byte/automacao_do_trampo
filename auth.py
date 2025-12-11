@@ -25,17 +25,31 @@ def parse_datetime_safe(date_str):
             logger.warning("Falha ao parsear datetime: %s", e)
             return None
 
+# ------------------------------
+# Função de logging de eventos críticos
+def log_event(event_type, username=None, extra=None):
+    try:
+        log_ref = db.collection("logs_criticos").document()
+        log_data = {
+            "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "event_type": event_type,
+            "username": username,
+            "ip": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent"),
+            "extra": extra or {}
+        }
+        log_ref.set(log_data)
+    except Exception as e:
+        print(f"Erro ao registrar log: {e}")
 
 # ------------------------------
 # Middleware de sessão
 # ------------------------------
 @app.before_request
 def verificar_sessao():
-    # Liberar arquivos estáticos e favicon
     if request.path.startswith("/static/") or request.path == "/favicon.ico":
         return None
 
-    # Rotas públicas do auth
     if request.endpoint in ("auth.home", "auth.login", "auth.alterar_senha", "auth.logout"):
         return None
 
@@ -50,7 +64,6 @@ def verificar_sessao():
             session.clear()
             return redirect(url_for("auth.home"))
 
-    # Checar se senha foi alterada
     username = session.get("username")
     if username:
         try:
@@ -70,7 +83,6 @@ def verificar_sessao():
     session["last_seen"] = now.strftime("%Y-%m-%d %H:%M:%S%z")
     return None
 
-
 # ------------------------------
 # Rotas
 # ------------------------------
@@ -78,47 +90,40 @@ def verificar_sessao():
 def home():
     return render_template("login.html")
 
-
 @auth_bp.route("/login", methods=["POST"])
 def login():
-    # **CSRF será validado automaticamente pelo Flask-WTF antes de entrar aqui**
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
     ip = request.remote_addr
 
-    # Validação mínima de tamanho
     if len(username) > 50 or len(password) > 1000:
         return "Entrada inválida", 400
 
-    # Proteção Brute Force
     identifier = get_identifier(email=username, ip=ip)
     blocked, seconds_left = check_block(identifier)
     if blocked:
         return f"Conta bloqueada. Tente novamente em {seconds_left//60} minutos.", 403
 
-    # Verificação de credenciais
     query = db.collection("usuarios").where("username", "==", username).limit(1).stream()
     user_doc = next(query, None)
 
     if user_doc:
         user_data = user_doc.to_dict()
         if check_password_hash(user_data.get("password_hash", ""), password):
-            # Login correto -> reset de tentativas
             register_attempt(identifier, success=True)
-
-            # Limpa sessão apenas após login bem-sucedido
             session.clear()
             session.permanent = True
             session["logged_in"] = True
             session["username"] = username
             session["role"] = user_data.get("role", "user")
             session["last_seen"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S%z")
+
+            log_event("login", username=username)
             return redirect(url_for("dashboard.dashboard"))
 
-    # Login incorreto -> registra tentativa falha
     register_attempt(identifier, success=False)
+    log_event("tentativa_invalida", username=username, extra={"ip": ip})
     return "Usuário ou senha incorretos!", 401
-
 
 @auth_bp.route("/alterar_senha", methods=["POST"])
 def alterar_senha():
@@ -128,7 +133,6 @@ def alterar_senha():
     username = session.get("username")
     nova = request.form.get("nova_senha", "").strip()
 
-    # Validação mínima
     if not nova or len(nova) > 1000:
         return "Senha inválida", 400
 
@@ -143,10 +147,12 @@ def alterar_senha():
         return "Erro ao alterar senha", 500
 
     session.clear()
+    log_event("alteracao_senha", username=username)
     return redirect(url_for("auth.home"))
-
 
 @auth_bp.route("/logout")
 def logout():
+    username = session.get("username")
     session.clear()
+    log_event("logout", username=username)
     return redirect(url_for("auth.home"))
