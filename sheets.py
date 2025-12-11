@@ -14,6 +14,15 @@ def read_sheet_to_dataframe(sheet_url: str, sheet_name: str, creds_path: str = "
     if not sheet_url or not sheet_name:
         return pd.DataFrame()
 
+    # ---------------------------------------
+    # 🔒 Proteção SSRF: validação da URL
+    # ---------------------------------------
+    allowed_prefix = "https://docs.google.com/spreadsheets/"
+
+    if not sheet_url.startswith(allowed_prefix):
+        logger.error(f"URL de planilha bloqueada (SSRF): {sheet_url}")
+        return pd.DataFrame()  # mantém comportamento original (falha silenciosa)
+
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
         creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
@@ -28,6 +37,7 @@ def read_sheet_to_dataframe(sheet_url: str, sheet_name: str, creds_path: str = "
     except Exception as e:
         logger.error(f"Erro ao ler Google Sheets ({sheet_name}): {e}")
         return pd.DataFrame()
+
 
 
 def parse_brl(valor):
