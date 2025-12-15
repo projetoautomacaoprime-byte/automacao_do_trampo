@@ -5,6 +5,7 @@ from datetime import timedelta
 from flask import Flask
 import firebase_admin
 from firebase_admin import credentials, firestore
+import base64
 
 # --- Configurar logging ---
 logging.basicConfig(level=logging.INFO)
@@ -21,14 +22,16 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # --- Inicializar Firebase diretamente da variável de ambiente ---
-firebase_creds_json = os.getenv("FIREBASE_CREDENTIALS")
-if not firebase_creds_json:
-    raise ValueError("FIREBASE_CREDENTIALS não está definido no ambiente")
+firebase_creds_base64 = os.getenv("FIREBASE_CREDENTIALS_BASE64")
+if not firebase_creds_base64:
+    raise ValueError("FIREBASE_CREDENTIALS_BASE64 não está definido no ambiente")
 
 try:
+    # Decodifica Base64 e transforma em dicionário Python
+    firebase_creds_json = base64.b64decode(firebase_creds_base64).decode()
     firebase_creds_dict = json.loads(firebase_creds_json)
-except json.JSONDecodeError as e:
-    raise ValueError("FIREBASE_CREDENTIALS não é um JSON válido") from e
+except Exception as e:
+    raise ValueError("Erro ao decodificar ou carregar FIREBASE_CREDENTIALS_BASE64") from e
 
 cred = credentials.Certificate(firebase_creds_dict)
 
