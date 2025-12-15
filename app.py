@@ -22,16 +22,32 @@ def create_app():
     csrf.init_app(app)
     init_security_headers(app)
 
-    # === Registrar blueprints ===
-    from auth import auth_bp
-    from dashboard import dashboard_bp
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(consulta_bp)  # registrado corretamente
+    # === Registrar blueprints com logging ===
+    try:
+        from auth import auth_bp
+        app.register_blueprint(auth_bp)
+        logger.info("Blueprint auth registrado")
+    except Exception as e:
+        logger.exception("Erro ao registrar auth_bp: %s", e)
+
+    try:
+        from dashboard import dashboard_bp
+        app.register_blueprint(dashboard_bp)
+        logger.info("Blueprint dashboard registrado")
+    except Exception as e:
+        logger.exception("Erro ao registrar dashboard_bp: %s", e)
+
+    try:
+        app.register_blueprint(consulta_bp)
+        logger.info("Blueprint consulta registrado")
+    except Exception as e:
+        logger.exception("Erro ao registrar consulta_bp: %s", e)
+
     return app
 
 
 app = create_app()
+logger.info("Aplicação Flask criada com sucesso")
 
 # === Gerar NONCE antes de cada requisição para CSP ===
 @app.before_request
@@ -63,8 +79,8 @@ def apply_csp(response):
     response.headers['Content-Security-Policy'] = csp
     return response
 
-# === Executar aplicação ===
+# === Apenas para execução local (não usado no Railway/Gunicorn) ===
 if __name__ == '__main__':
-   debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-   logger.info("Aplicação rodando em modo debug: %s", debug_mode)
-   app.run(host="0.0.0.0", port=5000, debug=debug_mode)
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    logger.info("Aplicação rodando em modo debug: %s", debug_mode)
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode)
