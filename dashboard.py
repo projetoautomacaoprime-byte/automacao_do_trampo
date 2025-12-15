@@ -274,6 +274,10 @@ def salvar_cliente_dashboard():
         # 🔹 Atrelando automaticamente o divulgador (usuário logado)
         payload["divulgador"] = session.get("username") or "desconhecido"
 
+        # 🔹 Adicionando data de divulgação automática se não existir
+        if "data_divulgacao" not in payload or not payload["data_divulgacao"]:
+            payload["data_divulgacao"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
         doc_ref.set(payload, merge=True)
 
         try:
