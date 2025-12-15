@@ -8,7 +8,7 @@ import bleach
 from security import sanitize_doc_id, sanitize_query_param, sanitize_username
 import re
 from datetime import datetime
-
+from zoneinfo import ZoneInfo
 dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------------
@@ -276,7 +276,7 @@ def salvar_cliente_dashboard():
 
         # 🔹 Adicionando data de divulgação automática se não existir
         if "data_divulgacao" not in payload or not payload["data_divulgacao"]:
-            payload["data_divulgacao"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+           payload["data_divulgacao"] = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
 
         doc_ref.set(payload, merge=True)
 
