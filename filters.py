@@ -1,19 +1,69 @@
 import pandas as pd
 from firebase_admin import firestore
 import logging
+import unicodedata
+import re
 
 db = firestore.client()
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------
+# MAPEAMENTO DE BANCOS (keywords para detectar mesmo com sufixos)
+# ----------------------------------------------------
+BANK_KEYWORDS = {
+    "bradesco": ["bradesco"],
+    "itau": ["itau"],
+    "santander": ["santander"],
+    "banco do brasil": ["banco do brasil"],
+    "nubank": ["nubank"],
+    "sicredi": ["sicredi"],
+    "daycoval": ["daycoval"],
+    "bmg": ["bmg"],
+    "inter": ["inter"],
+    "safra": ["safra"],
+    "alfa": ["alfa"],
+    "c6": ["c6"],    # pega "c6 bank", "c6bank" etc
+    "brb": ["brb"],
+    "inbursa": ["inbursa"],
+    "banrisul": ["banrisul"],
+}
+
+# set com os bancos aceitos no sistema
+BANCOS_VALIDOS = set(BANK_KEYWORDS.keys())
+
+
+# ----------------------------------------------------
+# UTIL: normalizar texto
+# ----------------------------------------------------
+def normalize_text(s: str) -> str:
+    if s is None:
+        return ""
+    s = unicodedata.normalize("NFKD", str(s))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return s.strip()
+
+
+# ----------------------------------------------------
+# MAPEAR BANCO A PARTIR DA STRING DA PLANILHA
+# ----------------------------------------------------
+def mapear_banco(banco_raw: str) -> str | None:
+    norm = normalize_text(banco_raw)
+
+    for banco, keywords in BANK_KEYWORDS.items():
+        for kw in keywords:
+            kw_norm = normalize_text(kw)
+            if kw_norm in norm:
+                return banco
+
+    return None
 
 
 # ----------------------------------------------------
 # LER ÓRGÃOS DO FIRESTORE
 # ----------------------------------------------------
 def carregar_orgaos():
-    """
-    Lê a coleção 'Orgãos_taxa_cod' do Firestore e retorna uma lista de dicionários:
-    [{'nome': str, 'codigos': [str], 'taxa': float, 'ativo': bool}]
-    """
     try:
         orgaos_ref = db.collection("Orgãos_taxa_cod")
         docs = orgaos_ref.stream()
@@ -35,13 +85,13 @@ def carregar_orgaos():
             codigos_raw = data.get("codigos", [])
             ativo_raw = data.get("ativo", "false")
 
-            # Firestore: codigos é ARRAY (não string)
+            # codigos é array no Firestore
             if isinstance(codigos_raw, list):
                 codigos = [str(c).strip() for c in codigos_raw]
             else:
                 codigos = [c.strip() for c in str(codigos_raw).split(",")]
 
-            # "1,36%" → 0.0136
+            # converter taxa "1,36%" → 0.0136
             taxa_float = 0
             try:
                 taxa_str = str(taxa_raw).replace("%", "").replace(",", ".").strip()
@@ -68,11 +118,9 @@ def carregar_orgaos():
 # ----------------------------------------------------
 # FILTRAR DATAFRAME
 # ----------------------------------------------------
-def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_filtro=None, orgaos_fire=None) -> pd.DataFrame:
-    """
-    Aplica filtros no DataFrame com base em saldo, UF, órgão e dados do Firestore.
-    Retorna um DataFrame filtrado.
-    """
+def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None,
+                    saldo_filtro=None, orgaos_fire=None) -> pd.DataFrame:
+
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -88,15 +136,37 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
 
     # Banco + Idade
     if 'banco' in filtered_df.columns:
-        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip().str.lower()
-    else:
-        filtered_df['banco_clean'] = ""
-    filtered_df = filtered_df[filtered_df['banco_clean'] != ""]
 
+        filtered_df['banco_clean'] = filtered_df['banco'].astype(str).str.strip()
+
+        # Primeiro: mapear
+        filtered_df['banco_mapeado'] = filtered_df['banco_clean'].apply(mapear_banco)
+
+        # Debug
+        try:
+            logger.info(f"Mapeados: {filtered_df['banco_mapeado'].dropna().unique()[:20]}")
+        except Exception:
+            pass
+
+        # Mostrar unmapped ANTES do filtro
+        unmapped = filtered_df[filtered_df['banco_mapeado'].isna()]['banco_clean'].unique()
+        if len(unmapped) > 0:
+            logger.warning(f"❗ Bancos não mapeados (primeiros 20): {unmapped[:20]}")
+
+        # Agora sim filtra bancos válidos
+        filtered_df = filtered_df[
+            filtered_df['banco_mapeado'].notna() &
+            filtered_df['banco_mapeado'].isin(BANCOS_VALIDOS)
+        ]
+
+    else:
+        return pd.DataFrame()
+
+    # Idade
     if 'idade' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['idade'] <= 70]
 
-    # Limpeza do órgão → deixa só números
+    # Limpeza do órgão
     if "orgao" in filtered_df.columns:
         filtered_df["orgao_clean"] = (
             filtered_df["orgao"]
@@ -105,7 +175,7 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
                 .str.strip()
         )
 
-    # Criar mapa de códigos → órgãos
+    # Criar mapa código → órgão
     codigo_to_orgao = {}
     if orgaos_fire:
         for org in orgaos_fire:
@@ -114,16 +184,17 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
             nome = org.get("nome", "")
             taxa = org.get("taxa", 0)
             codigos = org.get("codigos", [])
+
             for c in codigos:
                 c_normalizado = "".join(filter(str.isdigit, str(c)))
                 codigo_to_orgao[c_normalizado] = {"nome": nome, "taxa": taxa}
 
-    # Filtrar apenas códigos existentes no Firestore
+    # Filtrar códigos existentes
     filtered_df = filtered_df[filtered_df["orgao_clean"].isin(codigo_to_orgao.keys())].copy()
     if filtered_df.empty:
         return filtered_df
 
-    # Adicionar nome do órgão e taxa
+    # Adicionar nome e taxa
     filtered_df["nome_orgao"] = filtered_df["orgao_clean"].apply(
         lambda x: codigo_to_orgao.get(x, {}).get("nome", "")
     )
@@ -131,10 +202,11 @@ def aplicar_filtros(df: pd.DataFrame, uf_filtro=None, orgao_filtro=None, saldo_f
         lambda x: codigo_to_orgao.get(x, {}).get("taxa", 0)
     )
 
-    # Filtro manual de órgão
+    # Filtro simples de órgão (manual input): filtra direto pelo código da planilha
     if orgao_filtro:
-        orgao_filtro = str(orgao_filtro).lower().strip()
-        filtered_df = filtered_df[filtered_df["nome_orgao"].str.lower() == orgao_filtro]
+        orgao_filtro = str(orgao_filtro).strip()
+        filtered_df = filtered_df[filtered_df["orgao_clean"] == orgao_filtro]
+
 
     # Filtro UF
     if uf_filtro and "uf" in filtered_df.columns:

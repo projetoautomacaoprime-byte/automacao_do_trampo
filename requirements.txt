@@ -1,10 +1,15 @@
-# Bibliotecas principais do projeto
-pandas
-gspread
-selenium
-flask
-firebase-admin
+Flask==3.0.2
+Flask-WTF==1.2.1
+gunicorn==21.2.0
 
-# Dependências auxiliares (instaladas junto, mas bom registrar)
-requests
-oauth2client
+pandas==2.2.1
+numpy==1.26.4
+
+firebase-admin==6.5.0
+google-auth==2.27.0
+google-cloud-firestore==2.15.0
+
+gspread==6.0.2
+oauth2client==4.1.3
+
+requests==2.31.0
