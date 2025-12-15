@@ -271,6 +271,9 @@ def salvar_cliente_dashboard():
         if novo_tel:
             payload["novo_telefone"] = novo_tel
 
+        # 🔹 Atrelando automaticamente o divulgador (usuário logado)
+        payload["divulgador"] = session.get("username") or "desconhecido"
+
         doc_ref.set(payload, merge=True)
 
         try:
